@@ -1,12 +1,22 @@
 import SwiftUI
+import SwiftData
 import UniformTypeIdentifiers
 
 struct ImportHubView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query private var rules: [Rule]
+    @Query(sort: \Transaction.date, order: .reverse) private var existingTransactions: [Transaction]
+
     @State private var accountName = ""
-    @State private var uploads: [UploadFile] = MockData.uploadFiles
+    @State private var uploads: [UploadEntry] = []
     @State private var showDocumentPicker = false
-    @State private var showConflictResolver = false
     @State private var isDragTargeted = false
+    @State private var showConflictResolver = false
+    @State private var conflictPairs: [(new: StatementParser.ParsedRow, existing: Transaction)] = []
+    @State private var pendingTransactions: [StatementParser.ParsedRow] = []
+    @State private var showParseError = false
+    @State private var parseErrorMessage = ""
+    @State private var currentParsingAccount = ""
 
     var body: some View {
         ScrollView {
@@ -21,7 +31,7 @@ struct ImportHubView: View {
                         .font(KlarFonts.heading(18))
                         .foregroundStyle(KlarColors.secondary)
 
-                    Text("Upload a csv, pdf, or photo of receipt. Parsed transactions go to your inbox for review before being added.")
+                    Text("Upload a CSV, PDF, or photo of receipt. Parsed transactions go to your inbox for review before being added.")
                         .font(KlarFonts.body(14))
                         .foregroundStyle(KlarColors.secondary)
                         .padding(.top, 4)
@@ -58,15 +68,22 @@ struct ImportHubView: View {
                 .padding(.horizontal, 20)
 
                 // Uploads Section
-                VStack(alignment: .leading, spacing: 12) {
-                    SectionHeader(title: "UPLOADS")
-                        .padding(.horizontal, 20)
+                if !uploads.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionHeader(title: "UPLOADS")
+                            .padding(.horizontal, 20)
 
-                    VStack(spacing: 1) {
-                        ForEach(uploads) { file in
-                            uploadRow(file)
+                        VStack(spacing: 1) {
+                            ForEach(uploads) { entry in
+                                uploadRow(entry)
+                            }
                         }
                     }
+                }
+
+                // Pending transactions review
+                if !pendingTransactions.isEmpty {
+                    pendingReviewSection
                 }
 
                 Spacer(minLength: 100)
@@ -74,17 +91,28 @@ struct ImportHubView: View {
         }
         .background(KlarColors.background)
         .sheet(isPresented: $showConflictResolver) {
-            ConflictResolverView()
+            ConflictResolverView(
+                conflicts: $conflictPairs,
+                onResolve: { resolved in
+                    handleResolvedConflicts(resolved)
+                }
+            )
         }
         .fileImporter(
             isPresented: $showDocumentPicker,
             allowedContentTypes: [.pdf, .commaSeparatedText],
-            allowsMultipleSelection: false
+            allowsMultipleSelection: true
         ) { result in
             handleFileImport(result)
         }
+        .alert("Parse Error", isPresented: $showParseError) {
+            Button("OK") {}
+        } message: {
+            Text(parseErrorMessage)
+        }
     }
 
+    // MARK: - Drop Zone
     private var dropZone: some View {
         Button {
             showDocumentPicker = true
@@ -119,52 +147,41 @@ struct ImportHubView: View {
             )
         }
         .dropDestination(for: Data.self) { items, location in
-            // Handle dropped files
             return true
         } isTargeted: { targeted in
             isDragTargeted = targeted
         }
     }
 
-    private func uploadRow(_ file: UploadFile) -> some View {
+    // MARK: - Upload Row
+    private func uploadRow(_ entry: UploadEntry) -> some View {
         HStack(spacing: 14) {
-            // File type icon
             RoundedRectangle(cornerRadius: 8)
-                .fill(file.fileType == "PDF" ? Color.red.opacity(0.15) : KlarColors.positive.opacity(0.15))
+                .fill(entry.fileType == "PDF" ? Color.red.opacity(0.15) : KlarColors.positive.opacity(0.15))
                 .frame(width: 44, height: 44)
                 .overlay(
-                    Text(file.fileType)
+                    Text(entry.fileType)
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(file.fileType == "PDF" ? .red : KlarColors.positive)
+                        .foregroundStyle(entry.fileType == "PDF" ? .red : KlarColors.positive)
                 )
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(file.name)
+                Text(entry.name)
                     .font(KlarFonts.body(14))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                Text(file.size)
+                Text(entry.statusMessage)
                     .font(KlarFonts.label(11))
                     .foregroundStyle(KlarColors.secondary)
             }
 
             Spacer()
 
-            StatusBadge(status: file.status)
-
-            if file.status == .needsReview {
-                Button {
-                    showConflictResolver = true
-                } label: {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(KlarColors.negative)
-                        .font(.system(size: 14))
-                }
-            }
+            StatusBadge(status: entry.status)
 
             Button {
-                uploads.removeAll { $0.id == file.id }
+                uploads.removeAll { $0.id == entry.id }
             } label: {
                 Image(systemName: "trash")
                     .foregroundStyle(KlarColors.secondary)
@@ -176,22 +193,263 @@ struct ImportHubView: View {
         .background(KlarColors.surface)
     }
 
+    // MARK: - Pending Review Section
+    private var pendingReviewSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                SectionHeader(title: "PARSED TRANSACTIONS (\(pendingTransactions.count))")
+                Spacer()
+                Button {
+                    addAllPendingTransactions()
+                } label: {
+                    Text("ADD ALL")
+                        .font(KlarFonts.label(12))
+                        .fontWeight(.bold)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(.white)
+                        .clipShape(Capsule())
+                }
+            }
+            .padding(.horizontal, 20)
+
+            ForEach(Array(pendingTransactions.enumerated()), id: \.offset) { index, row in
+                pendingRow(row, index: index)
+            }
+        }
+    }
+
+    private func pendingRow(_ row: StatementParser.ParsedRow, index: Int) -> some View {
+        let merchant = AutoCategorizer.extractMerchant(from: row.description)
+        let category = AutoCategorizer.categorize(description: row.description, rules: Array(rules))
+        let catColor = KlarColors.categoryColor(for: category)
+
+        return HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(catColor.opacity(0.2))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: categorySymbol(for: category))
+                        .font(.system(size: 14))
+                        .foregroundStyle(catColor)
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(merchant.uppercased())
+                    .font(KlarFonts.label(13))
+                    .fontWeight(.bold)
+                    .foregroundStyle(.white)
+
+                HStack(spacing: 6) {
+                    CategoryPill(name: category, color: catColor)
+                    Text(formatDate(row.date))
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(KlarColors.secondary)
+                }
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(row.type == .income
+                    ? CurrencyHelper.formatSigned(row.amount)
+                    : CurrencyHelper.formatSigned(-row.amount))
+                    .font(KlarFonts.label(14))
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+                    .foregroundStyle(row.type == .income ? KlarColors.positive : KlarColors.negative)
+
+                HStack(spacing: 4) {
+                    Button {
+                        addSingleTransaction(row, at: index)
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(KlarColors.positive)
+                    }
+                    Button {
+                        pendingTransactions.remove(at: index)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(KlarColors.negative)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(KlarColors.surface)
+    }
+
+    // MARK: - File Import Handler
     private func handleFileImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             for url in urls {
                 let name = url.lastPathComponent
                 let ext = url.pathExtension.uppercased()
-                let newFile = UploadFile(
+                let entryId = UUID()
+
+                let entry = UploadEntry(
+                    id: entryId,
                     name: name,
-                    size: "Calculating...",
                     fileType: ext == "PDF" ? "PDF" : "CSV",
-                    status: .parsing
+                    status: .parsing,
+                    statusMessage: "Parsing...",
+                    transactionCount: 0
                 )
-                uploads.append(newFile)
+                uploads.append(entry)
+
+                currentParsingAccount = accountName.isEmpty ? "Imported" : accountName
+
+                Task {
+                    await parseFileAsync(url: url, entryId: entryId, account: currentParsingAccount)
+                }
             }
-        case .failure:
-            break
+        case .failure(let error):
+            parseErrorMessage = error.localizedDescription
+            showParseError = true
         }
     }
+
+    private func parseFileAsync(url: URL, entryId: UUID, account: String) async {
+        let parser = StatementParser()
+        do {
+            let result = try await parser.parseFile(at: url, accountName: account)
+            let rulesArray = Array(rules)
+
+            await MainActor.run {
+                if result.transactions.isEmpty {
+                    updateUploadEntry(entryId, status: .needsReview,
+                        message: result.errors.first ?? "No transactions found",
+                        count: 0)
+                    if let errorMsg = result.errors.first {
+                        parseErrorMessage = errorMsg
+                        showParseError = true
+                    }
+                } else {
+                    // Check for duplicates
+                    let duplicates = DuplicateDetector.findDuplicates(
+                        newTransactions: result.transactions,
+                        existing: Array(existingTransactions)
+                    )
+
+                    let duplicateDescs = Set(duplicates.map { $0.new.description })
+                    let nonDuplicates = result.transactions.filter { !duplicateDescs.contains($0.description) }
+
+                    pendingTransactions.append(contentsOf: nonDuplicates)
+
+                    if !duplicates.isEmpty {
+                        conflictPairs = duplicates
+                        updateUploadEntry(entryId, status: .needsReview,
+                            message: "\(result.transactions.count) parsed, \(duplicates.count) potential duplicates",
+                            count: result.transactions.count)
+                        showConflictResolver = true
+                    } else {
+                        updateUploadEntry(entryId, status: .success,
+                            message: "\(result.transactions.count) transactions parsed",
+                            count: result.transactions.count)
+                    }
+                }
+            }
+        } catch {
+            await MainActor.run {
+                updateUploadEntry(entryId, status: .needsReview,
+                    message: error.localizedDescription, count: 0)
+                parseErrorMessage = error.localizedDescription
+                showParseError = true
+            }
+        }
+    }
+
+    private func updateUploadEntry(_ id: UUID, status: UploadStatus, message: String, count: Int) {
+        if let index = uploads.firstIndex(where: { $0.id == id }) {
+            uploads[index].status = status
+            uploads[index].statusMessage = message
+            uploads[index].transactionCount = count
+        }
+    }
+
+    // MARK: - Transaction Insertion
+    private func addSingleTransaction(_ row: StatementParser.ParsedRow, at index: Int) {
+        let rulesArray = Array(rules)
+        let merchant = AutoCategorizer.extractMerchant(from: row.description)
+        let category = AutoCategorizer.categorize(description: row.description, rules: rulesArray)
+        let account = currentParsingAccount.isEmpty ? "Imported" : currentParsingAccount
+
+        let transaction = Transaction(
+            date: row.date,
+            merchant: merchant,
+            amount: row.type == .income ? row.amount : -row.amount,
+            category: category,
+            account: account,
+            type: row.type,
+            importSource: .csv,
+            notes: row.description
+        )
+        modelContext.insert(transaction)
+        try? modelContext.save()
+
+        pendingTransactions.remove(at: index)
+    }
+
+    private func addAllPendingTransactions() {
+        let rulesArray = Array(rules)
+        let account = currentParsingAccount.isEmpty ? "Imported" : currentParsingAccount
+
+        for row in pendingTransactions {
+            let merchant = AutoCategorizer.extractMerchant(from: row.description)
+            let category = AutoCategorizer.categorize(description: row.description, rules: rulesArray)
+
+            let transaction = Transaction(
+                date: row.date,
+                merchant: merchant,
+                amount: row.type == .income ? row.amount : -row.amount,
+                category: category,
+                account: account,
+                type: row.type,
+                importSource: .csv,
+                notes: row.description
+            )
+            modelContext.insert(transaction)
+        }
+        try? modelContext.save()
+        pendingTransactions.removeAll()
+    }
+
+    private func handleResolvedConflicts(_ resolved: [StatementParser.ParsedRow]) {
+        pendingTransactions.append(contentsOf: resolved)
+        conflictPairs.removeAll()
+    }
+
+    // MARK: - Helpers
+    private func formatDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "dd MMM yyyy"
+        return f.string(from: date)
+    }
+
+    private func categorySymbol(for category: String) -> String {
+        switch category.lowercased() {
+        case "shopping": return "bag.fill"
+        case "entertainment": return "tv.fill"
+        case "health": return "heart.fill"
+        case "finance": return "banknote.fill"
+        case "transport": return "car.fill"
+        case "utilities": return "bolt.fill"
+        case "food": return "fork.knife"
+        case "income": return "indianrupeesign.circle.fill"
+        default: return "ellipsis.circle.fill"
+        }
+    }
+}
+
+// MARK: - Upload Entry Model
+struct UploadEntry: Identifiable {
+    let id: UUID
+    let name: String
+    let fileType: String
+    var status: UploadStatus
+    var statusMessage: String
+    var transactionCount: Int
 }

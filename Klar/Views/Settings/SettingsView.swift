@@ -3,25 +3,17 @@ import SwiftData
 
 struct SettingsView: View {
     @Query private var rules: [Rule]
+    @Query private var categories: [Category]
     @Environment(\.modelContext) private var modelContext
 
     @State private var showAddRule = false
     @State private var showAddCategory = false
-    @State private var includeChartsInExport = true
-    @State private var autoExportOnFirst = false
-    @State private var exportFormat = "PDF"
-    @State private var userName = "Sid"
-    @State private var userEmail = "sid@example.com"
-    @State private var showDeleteConfirmation = false
-    @State private var categoryToDelete: Category?
-
-    @State private var mockRules: [(String, String)] = [
-        ("zomato", "Food"),
-        ("swiggy", "Food"),
-        ("uber", "Transport"),
-        ("netflix", "Entertainment"),
-        ("spotify", "Entertainment"),
-    ]
+    @AppStorage("includeChartsInExport") private var includeChartsInExport = true
+    @AppStorage("autoExportOnFirst") private var autoExportOnFirst = false
+    @AppStorage("exportFormat") private var exportFormat = "PDF"
+    @AppStorage("userName") private var userName = "User"
+    @AppStorage("userEmail") private var userEmail = ""
+    @AppStorage("monthlyBudget") private var monthlyBudget: Double = 50000
 
     var body: some View {
         ScrollView {
@@ -32,16 +24,10 @@ struct SettingsView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
 
-                // Rule Engine
                 ruleEngineSection
-
-                // Custom Categories
                 customCategoriesSection
-
-                // Export Settings
+                budgetSection
                 exportSection
-
-                // Profile
                 profileSection
 
                 Spacer(minLength: 100)
@@ -50,12 +36,17 @@ struct SettingsView: View {
         .background(KlarColors.background)
         .sheet(isPresented: $showAddRule) {
             AddRuleSheet { keyword, category in
-                mockRules.append((keyword, category))
+                let rule = Rule(keyword: keyword, targetCategory: category)
+                modelContext.insert(rule)
+                try? modelContext.save()
                 showAddRule = false
             }
         }
         .sheet(isPresented: $showAddCategory) {
-            AddCategorySheet {
+            AddCategorySheet { name, colorHex, symbol in
+                let cat = Category(name: name, colorHex: colorHex, sfSymbol: symbol)
+                modelContext.insert(cat)
+                try? modelContext.save()
                 showAddCategory = false
             }
         }
@@ -67,30 +58,42 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "RULE ENGINE")
 
-                ForEach(Array(mockRules.enumerated()), id: \.offset) { index, rule in
-                    HStack {
-                        Text("If")
-                            .font(KlarFonts.body(14))
-                            .foregroundStyle(KlarColors.secondary)
-                        Text("\"\(rule.0)\"")
-                            .font(KlarFonts.body(14))
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.white)
-                        Text("→")
-                            .foregroundStyle(KlarColors.secondary)
-                        CategoryPill(
-                            name: rule.1,
-                            color: KlarColors.categoryColor(for: rule.1)
-                        )
-                        Spacer()
-                    }
-                    .padding(.vertical, 6)
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            mockRules.remove(at: index)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                Text("Rules auto-categorize imported transactions by keyword matching.")
+                    .font(KlarFonts.label(11))
+                    .foregroundStyle(KlarColors.inactive)
+
+                if rules.isEmpty {
+                    Text("No rules yet. Add rules to auto-categorize imports.")
+                        .font(KlarFonts.body(14))
+                        .foregroundStyle(KlarColors.secondary)
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(rules, id: \.id) { rule in
+                        HStack {
+                            Text("If")
+                                .font(KlarFonts.body(14))
+                                .foregroundStyle(KlarColors.secondary)
+                            Text("\"\(rule.keyword)\"")
+                                .font(KlarFonts.body(14))
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                            Text("→")
+                                .foregroundStyle(KlarColors.secondary)
+                            CategoryPill(
+                                name: rule.targetCategory,
+                                color: KlarColors.categoryColor(for: rule.targetCategory)
+                            )
+                            Spacer()
+                            Button {
+                                modelContext.delete(rule)
+                                try? modelContext.save()
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(KlarColors.negative.opacity(0.7))
+                            }
                         }
+                        .padding(.vertical, 4)
                     }
                 }
 
@@ -114,14 +117,16 @@ struct SettingsView: View {
     private var customCategoriesSection: some View {
         KlarCard {
             VStack(alignment: .leading, spacing: 14) {
-                SectionHeader(title: "CUSTOM CATEGORIES")
+                SectionHeader(title: "CATEGORIES")
+
+                let displayCategories = categories.isEmpty ? DefaultData.categories : Array(categories)
 
                 LazyVGrid(columns: [
                     GridItem(.flexible()),
                     GridItem(.flexible()),
                     GridItem(.flexible()),
                 ], spacing: 12) {
-                    ForEach(MockData.categories, id: \.name) { cat in
+                    ForEach(displayCategories, id: \.name) { cat in
                         VStack(spacing: 6) {
                             RoundedRectangle(cornerRadius: 10)
                                 .fill(Color(hex: cat.colorHex).opacity(0.2))
@@ -138,7 +143,6 @@ struct SettingsView: View {
                         }
                     }
 
-                    // Add button
                     Button {
                         showAddCategory = true
                     } label: {
@@ -158,6 +162,33 @@ struct SettingsView: View {
                         }
                     }
                 }
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    // MARK: - Budget
+    private var budgetSection: some View {
+        KlarCard {
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(title: "MONTHLY BUDGET")
+
+                HStack {
+                    Text("₹")
+                        .font(KlarFonts.heading(20))
+                        .foregroundStyle(.white)
+                    TextField("50000", value: $monthlyBudget, format: .number)
+                        .font(KlarFonts.heading(20))
+                        .foregroundStyle(.white)
+                        .keyboardType(.numberPad)
+                }
+                .padding(14)
+                .background(KlarColors.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                Text("This is used to calculate your burn rate on the dashboard.")
+                    .font(KlarFonts.label(11))
+                    .foregroundStyle(KlarColors.inactive)
             }
         }
         .padding(.horizontal, 20)
@@ -197,7 +228,7 @@ struct SettingsView: View {
                 }
 
                 Button {
-                    // Export action
+                    // Export action placeholder
                 } label: {
                     HStack {
                         Image(systemName: "square.and.arrow.up")
@@ -223,7 +254,6 @@ struct SettingsView: View {
                 SectionHeader(title: "PROFILE")
 
                 HStack(spacing: 14) {
-                    // Avatar
                     Circle()
                         .fill(KlarColors.finance)
                         .frame(width: 48, height: 48)
@@ -247,7 +277,7 @@ struct SettingsView: View {
                     .background(KlarColors.barTrack)
 
                 Button(role: .destructive) {
-                    // Sign out
+                    // Sign out placeholder
                 } label: {
                     Text("Sign Out")
                         .font(KlarFonts.label(14))
@@ -268,7 +298,7 @@ struct AddRuleSheet: View {
     @State private var selectedCategory = "Food"
     @Environment(\.dismiss) private var dismiss
 
-    let categoryNames = MockData.categories.map(\.name)
+    let categoryNames = ["Food", "Transport", "Shopping", "Entertainment", "Health", "Utilities", "Finance", "Misc", "Income"]
 
     var body: some View {
         VStack(spacing: 20) {
@@ -289,6 +319,10 @@ struct AddRuleSheet: View {
                     .padding(14)
                     .background(KlarColors.surfaceElevated)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                Text("When a transaction description contains this keyword, it will be assigned the selected category.")
+                    .font(KlarFonts.label(11))
+                    .foregroundStyle(KlarColors.inactive)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -344,7 +378,7 @@ struct AddRuleSheet: View {
 
 // MARK: - Add Category Sheet
 struct AddCategorySheet: View {
-    let onDismiss: () -> Void
+    let onAdd: (String, String, String) -> Void
     @State private var categoryName = ""
     @State private var selectedSymbol = "star.fill"
     @State private var selectedColor = Color.purple
@@ -397,8 +431,10 @@ struct AddCategorySheet: View {
             Spacer()
 
             Button {
+                guard !categoryName.isEmpty else { return }
+                let hex = selectedColor.toHex()
+                onAdd(categoryName, hex, selectedSymbol)
                 dismiss()
-                onDismiss()
             } label: {
                 Text("Create Category")
                     .font(KlarFonts.label(14))

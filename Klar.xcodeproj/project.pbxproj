@@ -30,6 +30,7 @@
 		AA000021 /* ConflictResolverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000021; };
 		AA000022 /* SpendingTrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000022; };
 		AA000023 /* SubscriptionAuditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000023; };
+		AA000024 /* StatementParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000024; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -56,6 +57,7 @@
 		BB000021 /* ConflictResolverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConflictResolverView.swift; sourceTree = "<group>"; };
 		BB000022 /* SpendingTrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingTrendsView.swift; sourceTree = "<group>"; };
 		BB000023 /* SubscriptionAuditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionAuditView.swift; sourceTree = "<group>"; };
+		BB000024 /* StatementParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementParser.swift; sourceTree = "<group>"; };
 		CC000001 /* Klar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Klar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -105,6 +107,7 @@
 			children = (
 				BB000005 /* DesignSystem.swift */,
 				BB000006 /* CurrencyFormatter.swift */,
+				BB000024 /* StatementParser.swift */,
 			);
 			path = Helpers;
 			sourceTree = "<group>";
@@ -279,6 +282,7 @@
 				AA000021 /* ConflictResolverView.swift in Sources */,
 				AA000022 /* SpendingTrendsView.swift in Sources */,
 				AA000023 /* SubscriptionAuditView.swift in Sources */,
+				AA000024 /* StatementParser.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

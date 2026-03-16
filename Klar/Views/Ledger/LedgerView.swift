@@ -3,6 +3,9 @@ import SwiftData
 
 struct LedgerView: View {
     @Query(sort: \Transaction.date, order: .reverse) private var transactions: [Transaction]
+    @Query private var categories: [Category]
+    @Environment(\.modelContext) private var modelContext
+
     @State private var searchText = ""
     @State private var isSelectMode = false
     @State private var selectedTransactions: Set<UUID> = []
@@ -10,11 +13,7 @@ struct LedgerView: View {
     @State private var filteredResults: [Transaction]?
 
     private var displayTransactions: [Transaction] {
-        let txns = filteredResults ?? (transactions.isEmpty ? MockData.transactions : transactions)
-        if searchText.isEmpty && filteredResults == nil {
-            return txns
-        }
-        return txns
+        filteredResults ?? Array(transactions)
     }
 
     private var groupedTransactions: [(String, [Transaction])] {
@@ -52,6 +51,11 @@ struct LedgerView: View {
                             .onSubmit {
                                 performSmartSearch()
                             }
+                            .onChange(of: searchText) { _, newValue in
+                                if newValue.isEmpty {
+                                    filteredResults = nil
+                                }
+                            }
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
@@ -86,40 +90,56 @@ struct LedgerView: View {
             .padding(.top, 16)
             .padding(.bottom, 12)
 
-            // Transaction Feed
-            ScrollView {
-                LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
-                    ForEach(Array(groupedTransactions.enumerated()), id: \.element.0) { sectionIndex, group in
-                        Section {
-                            ForEach(Array(group.1.enumerated()), id: \.element.id) { rowIndex, transaction in
-                                let globalIndex = globalIndexFor(sectionIndex: sectionIndex, rowIndex: rowIndex)
-                                TransactionRow(
-                                    transaction: transaction,
-                                    index: globalIndex,
-                                    isSelectMode: isSelectMode,
-                                    isSelected: selectedTransactions.contains(transaction.id)
-                                )
-                                .onTapGesture {
-                                    if isSelectMode {
-                                        toggleSelection(transaction.id)
+            if transactions.isEmpty {
+                Spacer()
+                VStack(spacing: 12) {
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(.system(size: 48))
+                        .foregroundStyle(KlarColors.inactive)
+                    Text("No transactions yet")
+                        .font(KlarFonts.heading(18))
+                        .foregroundStyle(KlarColors.secondary)
+                    Text("Import a statement to see transactions here.")
+                        .font(KlarFonts.body(14))
+                        .foregroundStyle(KlarColors.inactive)
+                }
+                Spacer()
+            } else {
+                // Transaction Feed
+                ScrollView {
+                    LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
+                        ForEach(Array(groupedTransactions.enumerated()), id: \.element.0) { sectionIndex, group in
+                            Section {
+                                ForEach(Array(group.1.enumerated()), id: \.element.id) { rowIndex, transaction in
+                                    let globalIndex = globalIndexFor(sectionIndex: sectionIndex, rowIndex: rowIndex)
+                                    TransactionRow(
+                                        transaction: transaction,
+                                        index: globalIndex,
+                                        isSelectMode: isSelectMode,
+                                        isSelected: selectedTransactions.contains(transaction.id)
+                                    )
+                                    .onTapGesture {
+                                        if isSelectMode {
+                                            toggleSelection(transaction.id)
+                                        }
                                     }
-                                }
-                                .onLongPressGesture {
-                                    withAnimation {
-                                        isSelectMode = true
-                                        selectedTransactions.insert(transaction.id)
+                                    .onLongPressGesture {
+                                        withAnimation {
+                                            isSelectMode = true
+                                            selectedTransactions.insert(transaction.id)
+                                        }
+                                        let impact = UIImpactFeedbackGenerator(style: .medium)
+                                        impact.impactOccurred()
                                     }
-                                    let impact = UIImpactFeedbackGenerator(style: .medium)
-                                    impact.impactOccurred()
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
                                 }
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                            } header: {
+                                dateHeader(group.0, isToday: isToday(group.1.first?.date))
                             }
-                        } header: {
-                            dateHeader(group.0, isToday: sectionIndex == 0)
                         }
                     }
+                    .padding(.bottom, isSelectMode ? 80 : 100)
                 }
-                .padding(.bottom, isSelectMode ? 80 : 100)
             }
 
             // Batch action bar
@@ -130,11 +150,17 @@ struct LedgerView: View {
         .background(KlarColors.background)
         .sheet(isPresented: $showCategoryPicker) {
             CategoryPickerSheet { category in
+                updateSelectedTransactionsCategory(to: category)
                 showCategoryPicker = false
                 isSelectMode = false
                 selectedTransactions.removeAll()
             }
         }
+    }
+
+    private func isToday(_ date: Date?) -> Bool {
+        guard let date else { return false }
+        return Calendar.current.isDateInToday(date)
     }
 
     private func globalIndexFor(sectionIndex: Int, rowIndex: Int) -> Int {
@@ -175,13 +201,46 @@ struct LedgerView: View {
 
     private func performSmartSearch() {
         let query = searchText.lowercased()
-        let allTxns = transactions.isEmpty ? MockData.transactions : transactions
-
-        filteredResults = allTxns.filter { txn in
-            txn.merchant.lowercased().contains(query) ||
-            txn.category.lowercased().contains(query) ||
-            (txn.notes ?? "").lowercased().contains(query)
+        guard !query.isEmpty else {
+            filteredResults = nil
+            return
         }
+
+        // Parse for month names
+        let months = ["january": 1, "february": 2, "march": 3, "april": 4,
+                      "may": 5, "june": 6, "july": 7, "august": 8,
+                      "september": 9, "october": 10, "november": 11, "december": 12]
+
+        var monthFilter: Int?
+        for (name, num) in months {
+            if query.contains(name) {
+                monthFilter = num
+                break
+            }
+        }
+
+        filteredResults = transactions.filter { txn in
+            let matchesMerchant = txn.merchant.lowercased().contains(query)
+            let matchesCategory = txn.category.lowercased().contains(query)
+            let matchesNotes = (txn.notes ?? "").lowercased().contains(query)
+            let matchesAccount = txn.account.lowercased().contains(query)
+
+            let textMatch = matchesMerchant || matchesCategory || matchesNotes || matchesAccount
+
+            if let month = monthFilter {
+                let txnMonth = Calendar.current.component(.month, from: txn.date)
+                return txnMonth == month || textMatch
+            }
+
+            return textMatch
+        }
+    }
+
+    private func updateSelectedTransactionsCategory(to category: String) {
+        for txn in transactions where selectedTransactions.contains(txn.id) {
+            txn.category = category
+        }
+        try? modelContext.save()
     }
 
     private var batchActionBar: some View {
@@ -230,12 +289,10 @@ struct TransactionRow: View {
                     .font(.system(size: 20))
             }
 
-            // Index badge
             Text(String(format: "%02d", index))
                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                 .foregroundStyle(KlarColors.secondary)
 
-            // Category icon
             let catColor = KlarColors.categoryColor(for: transaction.category)
             let catSymbol = categorySymbol(for: transaction.category)
             RoundedRectangle(cornerRadius: 8)
@@ -247,7 +304,6 @@ struct TransactionRow: View {
                         .foregroundStyle(catColor)
                 )
 
-            // Details
             VStack(alignment: .leading, spacing: 4) {
                 Text(transaction.merchant.uppercased())
                     .font(KlarFonts.label(13))
@@ -267,7 +323,6 @@ struct TransactionRow: View {
 
             Spacer()
 
-            // Amount
             VStack(alignment: .trailing, spacing: 4) {
                 Text(CurrencyHelper.formatSigned(transaction.amount))
                     .font(KlarFonts.label(14))
@@ -302,8 +357,14 @@ struct TransactionRow: View {
 
 struct CategoryPickerSheet: View {
     let onSelect: (String) -> Void
+    @Query private var categories: [Category]
 
-    let categories = MockData.categories
+    private var displayCategories: [Category] {
+        if categories.isEmpty {
+            return DefaultData.categories
+        }
+        return Array(categories)
+    }
 
     var body: some View {
         VStack(spacing: 20) {
@@ -317,7 +378,7 @@ struct CategoryPickerSheet: View {
                 GridItem(.flexible()),
                 GridItem(.flexible()),
             ], spacing: 16) {
-                ForEach(categories, id: \.name) { cat in
+                ForEach(displayCategories, id: \.name) { cat in
                     Button {
                         onSelect(cat.name)
                     } label: {

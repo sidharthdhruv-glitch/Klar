@@ -2,7 +2,111 @@ import SwiftUI
 import Charts
 
 struct SpendingTrendsView: View {
+    let transactions: [Transaction]
     @State private var selectedTab = 0
+
+    private var dailySpending: [(day: Int, amount: Double)] {
+        let cal = Calendar.current
+        let now = Date()
+        let month = cal.component(.month, from: now)
+        let year = cal.component(.year, from: now)
+
+        let thisMonthExpenses = transactions.filter {
+            $0.type == .expense &&
+            cal.component(.month, from: $0.date) == month &&
+            cal.component(.year, from: $0.date) == year
+        }
+
+        var dayTotals: [Int: Double] = [:]
+        for txn in thisMonthExpenses {
+            let day = cal.component(.day, from: txn.date)
+            dayTotals[day, default: 0] += abs(txn.amount)
+        }
+
+        let maxDay = cal.component(.day, from: now)
+        return (1...maxDay).map { day in
+            (day: day, amount: dayTotals[day] ?? 0)
+        }
+    }
+
+    private var cumulativeSpending: [(day: Int, amount: Double)] {
+        var cumulative: Double = 0
+        return dailySpending.map { entry in
+            cumulative += entry.amount
+            return (day: entry.day, amount: cumulative)
+        }
+    }
+
+    private var averageLineData: [(day: Int, amount: Double)] {
+        let cal = Calendar.current
+        let now = Date()
+        let currentMonth = cal.component(.month, from: now)
+        let currentYear = cal.component(.year, from: now)
+
+        // Get past 6 months of data
+        var monthlyDailyTotals: [[Int: Double]] = []
+
+        for monthsBack in 1...6 {
+            guard let targetDate = cal.date(byAdding: .month, value: -monthsBack, to: now) else { continue }
+            let m = cal.component(.month, from: targetDate)
+            let y = cal.component(.year, from: targetDate)
+
+            let monthExpenses = transactions.filter {
+                $0.type == .expense &&
+                cal.component(.month, from: $0.date) == m &&
+                cal.component(.year, from: $0.date) == y
+            }
+
+            var dayTotals: [Int: Double] = [:]
+            for txn in monthExpenses {
+                let day = cal.component(.day, from: txn.date)
+                dayTotals[day, default: 0] += abs(txn.amount)
+            }
+            monthlyDailyTotals.append(dayTotals)
+        }
+
+        guard !monthlyDailyTotals.isEmpty else {
+            return cumulativeSpending
+        }
+
+        let maxDay = cal.component(.day, from: now)
+        var result: [(day: Int, amount: Double)] = []
+        var cumAvg: Double = 0
+
+        for day in 1...maxDay {
+            var total: Double = 0
+            var count: Double = 0
+            for monthData in monthlyDailyTotals {
+                total += monthData[day] ?? 0
+                count += 1
+            }
+            cumAvg += count > 0 ? total / count : 0
+            result.append((day: day, amount: cumAvg))
+        }
+
+        return result
+    }
+
+    private var weeklyData: [(day: Int, amount: Double)] {
+        let cal = Calendar.current
+        let now = Date()
+        var result: [(day: Int, amount: Double)] = []
+        for daysAgo in stride(from: 6, through: 0, by: -1) {
+            let day = cal.date(byAdding: .day, value: -daysAgo, to: now)!
+            let dayTotal = transactions.filter { txn in
+                txn.type == .expense && cal.isDate(txn.date, inSameDayAs: day)
+            }.reduce(0) { $0 + abs($1.amount) }
+            result.append((day: 7 - daysAgo, amount: dayTotal))
+        }
+        return result
+    }
+
+    private var trendPercentage: Double {
+        let currentTotal = cumulativeSpending.last?.amount ?? 0
+        let avgTotal = averageLineData.last?.amount ?? 0
+        guard avgTotal > 0 else { return 0 }
+        return ((currentTotal - avgTotal) / avgTotal) * 100
+    }
 
     var body: some View {
         KlarCard {
@@ -38,54 +142,11 @@ struct SpendingTrendsView: View {
                 }
 
                 // Chart
-                Chart {
-                    let data = selectedTab == 0 ? MockData.monthlyTrend : Array(MockData.monthlyTrend.prefix(7))
-                    let avgData = selectedTab == 0 ? MockData.sixMonthAvg : Array(MockData.sixMonthAvg.prefix(7))
-
-                    ForEach(Array(data.enumerated()), id: \.offset) { index, value in
-                        AreaMark(
-                            x: .value("Day", index + 1),
-                            y: .value("Amount", value)
-                        )
-                        .foregroundStyle(.white.opacity(0.05))
-
-                        LineMark(
-                            x: .value("Day", index + 1),
-                            y: .value("Amount", value)
-                        )
-                        .foregroundStyle(.white)
-                        .lineStyle(StrokeStyle(lineWidth: 1.5))
-                    }
-
-                    ForEach(Array(avgData.enumerated()), id: \.offset) { index, value in
-                        LineMark(
-                            x: .value("Day", index + 1),
-                            y: .value("Amount", value),
-                            series: .value("Series", "Average")
-                        )
-                        .foregroundStyle(KlarColors.secondary)
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    }
+                if selectedTab == 0 {
+                    monthlyChart
+                } else {
+                    weeklyChart
                 }
-                .chartXAxis {
-                    AxisMarks(values: .stride(by: 7)) { value in
-                        AxisValueLabel()
-                            .foregroundStyle(KlarColors.secondary)
-                            .font(.system(size: 10))
-                    }
-                }
-                .chartYAxis {
-                    AxisMarks(position: .leading) { value in
-                        AxisValueLabel {
-                            if let v = value.as(Double.self) {
-                                Text(CurrencyHelper.formatCompact(v))
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(KlarColors.secondary)
-                            }
-                        }
-                    }
-                }
-                .frame(height: 180)
 
                 // Trend stat
                 HStack {
@@ -93,12 +154,100 @@ struct SpendingTrendsView: View {
                         .font(KlarFonts.label(12))
                         .tracking(1)
                         .foregroundStyle(KlarColors.secondary)
-                    Text("-4.5% vs avg.")
+                    Text(String(format: "%.1f%% vs avg.", trendPercentage))
                         .font(KlarFonts.label(12))
-                        .foregroundStyle(KlarColors.positive)
+                        .foregroundStyle(trendPercentage <= 0 ? KlarColors.positive : KlarColors.negative)
                 }
             }
         }
+    }
+
+    private var monthlyChart: some View {
+        Chart {
+            ForEach(cumulativeSpending, id: \.day) { entry in
+                AreaMark(
+                    x: .value("Day", entry.day),
+                    y: .value("Amount", entry.amount)
+                )
+                .foregroundStyle(.white.opacity(0.05))
+
+                LineMark(
+                    x: .value("Day", entry.day),
+                    y: .value("Amount", entry.amount)
+                )
+                .foregroundStyle(.white)
+                .lineStyle(StrokeStyle(lineWidth: 1.5))
+            }
+
+            ForEach(averageLineData, id: \.day) { entry in
+                LineMark(
+                    x: .value("Day", entry.day),
+                    y: .value("Amount", entry.amount),
+                    series: .value("Series", "Average")
+                )
+                .foregroundStyle(KlarColors.secondary)
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: 7)) { value in
+                AxisValueLabel()
+                    .foregroundStyle(KlarColors.secondary)
+                    .font(.system(size: 10))
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading) { value in
+                AxisValueLabel {
+                    if let v = value.as(Double.self) {
+                        Text(CurrencyHelper.formatCompact(v))
+                            .font(.system(size: 9))
+                            .foregroundStyle(KlarColors.secondary)
+                    }
+                }
+            }
+        }
+        .frame(height: 180)
+    }
+
+    private var weeklyChart: some View {
+        Chart {
+            ForEach(weeklyData, id: \.day) { entry in
+                BarMark(
+                    x: .value("Day", entry.day),
+                    y: .value("Amount", entry.amount)
+                )
+                .foregroundStyle(.white.opacity(0.6))
+                .cornerRadius(4)
+            }
+        }
+        .chartXAxis {
+            AxisMarks { value in
+                AxisValueLabel {
+                    if let v = value.as(Int.self) {
+                        let cal = Calendar.current
+                        let day = cal.date(byAdding: .day, value: -(7 - v), to: Date())!
+                        let f = DateFormatter()
+                        f.dateFormat = "EEE"
+                        Text(f.string(from: day))
+                            .font(.system(size: 9))
+                            .foregroundStyle(KlarColors.secondary)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading) { value in
+                AxisValueLabel {
+                    if let v = value.as(Double.self) {
+                        Text(CurrencyHelper.formatCompact(v))
+                            .font(.system(size: 9))
+                            .foregroundStyle(KlarColors.secondary)
+                    }
+                }
+            }
+        }
+        .frame(height: 180)
     }
 
     private func tabButton(_ title: String, index: Int) -> some View {

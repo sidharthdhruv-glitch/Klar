@@ -136,14 +136,6 @@ class Subscription {
     }
 }
 
-struct UploadFile: Identifiable {
-    let id = UUID()
-    let name: String
-    let size: String
-    let fileType: String
-    var status: UploadStatus
-}
-
 enum UploadStatus: String {
     case parsing = "PARSING…"
     case success = "SUCCESS"
