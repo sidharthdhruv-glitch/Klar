@@ -223,17 +223,17 @@ struct SpendingTrendsView: View {
         }
         .chartXAxis {
             AxisMarks { value in
-                AxisValueLabel {
-                    if let v = value.as(Int.self) {
-                        let cal = Calendar.current
-                        let day = cal.date(byAdding: .day, value: -(7 - v), to: Date())!
-                        let f = DateFormatter()
-                        f.dateFormat = "EEE"
-                        Text(f.string(from: day))
-                            .font(.system(size: 9))
-                            .foregroundStyle(KlarColors.secondary)
-                    }
-                }
+                let label: String = {
+                    guard let v = value.as(Int.self) else { return "" }
+                    let cal = Calendar.current
+                    guard let day = cal.date(byAdding: .day, value: -(7 - v), to: Date()) else { return "" }
+                    let f = DateFormatter()
+                    f.dateFormat = "EEE"
+                    return f.string(from: day)
+                }()
+                AxisValueLabel(label)
+                    .font(.system(size: 9))
+                    .foregroundStyle(KlarColors.secondary)
             }
         }
         .chartYAxis {
