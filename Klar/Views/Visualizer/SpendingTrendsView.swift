@@ -1,11 +1,17 @@
 import SwiftUI
 import Charts
 
+struct ChartDataPoint: Identifiable {
+    let id: Int
+    let day: Int
+    let amount: Double
+}
+
 struct SpendingTrendsView: View {
     let transactions: [Transaction]
     @State private var selectedTab = 0
 
-    private var dailySpending: [(day: Int, amount: Double)] {
+    private var dailySpending: [ChartDataPoint] {
         let cal = Calendar.current
         let now = Date()
         let month = cal.component(.month, from: now)
@@ -25,25 +31,22 @@ struct SpendingTrendsView: View {
 
         let maxDay = cal.component(.day, from: now)
         return (1...maxDay).map { day in
-            (day: day, amount: dayTotals[day] ?? 0)
+            ChartDataPoint(id: day, day: day, amount: dayTotals[day] ?? 0)
         }
     }
 
-    private var cumulativeSpending: [(day: Int, amount: Double)] {
+    private var cumulativeSpending: [ChartDataPoint] {
         var cumulative: Double = 0
-        return dailySpending.map { entry in
+        return dailySpending.enumerated().map { index, entry in
             cumulative += entry.amount
-            return (day: entry.day, amount: cumulative)
+            return ChartDataPoint(id: index, day: entry.day, amount: cumulative)
         }
     }
 
-    private var averageLineData: [(day: Int, amount: Double)] {
+    private var averageLineData: [ChartDataPoint] {
         let cal = Calendar.current
         let now = Date()
-        let currentMonth = cal.component(.month, from: now)
-        let currentYear = cal.component(.year, from: now)
 
-        // Get past 6 months of data
         var monthlyDailyTotals: [[Int: Double]] = []
 
         for monthsBack in 1...6 {
@@ -70,7 +73,7 @@ struct SpendingTrendsView: View {
         }
 
         let maxDay = cal.component(.day, from: now)
-        var result: [(day: Int, amount: Double)] = []
+        var result: [ChartDataPoint] = []
         var cumAvg: Double = 0
 
         for day in 1...maxDay {
@@ -81,22 +84,23 @@ struct SpendingTrendsView: View {
                 count += 1
             }
             cumAvg += count > 0 ? total / count : 0
-            result.append((day: day, amount: cumAvg))
+            result.append(ChartDataPoint(id: day, day: day, amount: cumAvg))
         }
 
         return result
     }
 
-    private var weeklyData: [(day: Int, amount: Double)] {
+    private var weeklyData: [ChartDataPoint] {
         let cal = Calendar.current
         let now = Date()
-        var result: [(day: Int, amount: Double)] = []
+        var result: [ChartDataPoint] = []
         for daysAgo in stride(from: 6, through: 0, by: -1) {
             let day = cal.date(byAdding: .day, value: -daysAgo, to: now)!
             let dayTotal = transactions.filter { txn in
                 txn.type == .expense && cal.isDate(txn.date, inSameDayAs: day)
             }.reduce(0) { $0 + abs($1.amount) }
-            result.append((day: 7 - daysAgo, amount: dayTotal))
+            let index = 7 - daysAgo
+            result.append(ChartDataPoint(id: index, day: index, amount: dayTotal))
         }
         return result
     }
@@ -113,7 +117,6 @@ struct SpendingTrendsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 SectionHeader(title: "SPENDING TRENDS")
 
-                // Tab selector
                 HStack(spacing: 0) {
                     tabButton("THIS MONTH", index: 0)
                     tabButton("THIS WEEK", index: 1)
@@ -121,7 +124,6 @@ struct SpendingTrendsView: View {
                 .background(KlarColors.surfaceElevated)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                // Legend
                 HStack(spacing: 16) {
                     HStack(spacing: 6) {
                         RoundedRectangle(cornerRadius: 1)
@@ -141,14 +143,12 @@ struct SpendingTrendsView: View {
                     }
                 }
 
-                // Chart
                 if selectedTab == 0 {
                     monthlyChart
                 } else {
                     weeklyChart
                 }
 
-                // Trend stat
                 HStack {
                     Text("TREND:")
                         .font(KlarFonts.label(12))
@@ -164,7 +164,7 @@ struct SpendingTrendsView: View {
 
     private var monthlyChart: some View {
         Chart {
-            ForEach(cumulativeSpending, id: \.day) { entry in
+            ForEach(cumulativeSpending) { entry in
                 AreaMark(
                     x: .value("Day", entry.day),
                     y: .value("Amount", entry.amount)
@@ -179,7 +179,7 @@ struct SpendingTrendsView: View {
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
             }
 
-            ForEach(averageLineData, id: \.day) { entry in
+            ForEach(averageLineData) { entry in
                 LineMark(
                     x: .value("Day", entry.day),
                     y: .value("Amount", entry.amount),
@@ -190,7 +190,7 @@ struct SpendingTrendsView: View {
             }
         }
         .chartXAxis {
-            AxisMarks(values: .stride(by: 7)) { value in
+            AxisMarks(values: .stride(by: 7)) { _ in
                 AxisValueLabel()
                     .foregroundStyle(KlarColors.secondary)
                     .font(.system(size: 10))
@@ -212,7 +212,7 @@ struct SpendingTrendsView: View {
 
     private var weeklyChart: some View {
         Chart {
-            ForEach(weeklyData, id: \.day) { entry in
+            ForEach(weeklyData) { entry in
                 BarMark(
                     x: .value("Day", entry.day),
                     y: .value("Amount", entry.amount)
