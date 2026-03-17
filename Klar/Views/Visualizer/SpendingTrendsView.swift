@@ -9,27 +9,50 @@ struct ChartDataPoint: Identifiable {
 
 struct SpendingTrendsView: View {
     let transactions: [Transaction]
+    var selectedMonth: Int = Calendar.current.component(.month, from: Date())
+    var selectedYear: Int = Calendar.current.component(.year, from: Date())
     @State private var selectedTab = 0
+
+    private var isCurrentMonth: Bool {
+        let cal = Calendar.current
+        let now = Date()
+        return selectedMonth == cal.component(.month, from: now) &&
+               selectedYear == cal.component(.year, from: now)
+    }
 
     private var dailySpending: [ChartDataPoint] {
         let cal = Calendar.current
-        let now = Date()
-        let month = cal.component(.month, from: now)
-        let year = cal.component(.year, from: now)
 
-        let thisMonthExpenses = transactions.filter {
+        let monthExpenses = transactions.filter {
             $0.type == .expense &&
-            cal.component(.month, from: $0.date) == month &&
-            cal.component(.year, from: $0.date) == year
+            cal.component(.month, from: $0.date) == selectedMonth &&
+            cal.component(.year, from: $0.date) == selectedYear
         }
 
         var dayTotals: [Int: Double] = [:]
-        for txn in thisMonthExpenses {
+        for txn in monthExpenses {
             let day = cal.component(.day, from: txn.date)
             dayTotals[day, default: 0] += abs(txn.amount)
         }
 
-        let maxDay = cal.component(.day, from: now)
+        // For current month, show up to today; for past months, show all days
+        let maxDay: Int
+        if isCurrentMonth {
+            maxDay = cal.component(.day, from: Date())
+        } else {
+            var comps = DateComponents()
+            comps.year = selectedYear
+            comps.month = selectedMonth
+            comps.day = 1
+            if let firstOfMonth = cal.date(from: comps),
+               let range = cal.range(of: .day, in: .month, for: firstOfMonth) {
+                maxDay = range.count
+            } else {
+                maxDay = dayTotals.keys.max() ?? 28
+            }
+        }
+
+        guard maxDay >= 1 else { return [] }
         return (1...maxDay).map { day in
             ChartDataPoint(id: day, day: day, amount: dayTotals[day] ?? 0)
         }
@@ -45,12 +68,18 @@ struct SpendingTrendsView: View {
 
     private var averageLineData: [ChartDataPoint] {
         let cal = Calendar.current
-        let now = Date()
+
+        // Build a reference date for the selected month
+        var selectedComps = DateComponents()
+        selectedComps.year = selectedYear
+        selectedComps.month = selectedMonth
+        selectedComps.day = 1
+        let selectedDate = cal.date(from: selectedComps) ?? Date()
 
         var monthlyDailyTotals: [[Int: Double]] = []
 
         for monthsBack in 1...6 {
-            guard let targetDate = cal.date(byAdding: .month, value: -monthsBack, to: now) else { continue }
+            guard let targetDate = cal.date(byAdding: .month, value: -monthsBack, to: selectedDate) else { continue }
             let m = cal.component(.month, from: targetDate)
             let y = cal.component(.year, from: targetDate)
 
@@ -72,7 +101,8 @@ struct SpendingTrendsView: View {
             return cumulativeSpending
         }
 
-        let maxDay = cal.component(.day, from: now)
+        let maxDay = dailySpending.count
+        guard maxDay >= 1 else { return [] }
         var result: [ChartDataPoint] = []
         var cumAvg: Double = 0
 
@@ -92,10 +122,29 @@ struct SpendingTrendsView: View {
 
     private var weeklyData: [ChartDataPoint] {
         let cal = Calendar.current
-        let now = Date()
+
+        // For current month, show last 7 days from today
+        // For past months, show last 7 days of that month
+        let referenceDate: Date
+        if isCurrentMonth {
+            referenceDate = Date()
+        } else {
+            var comps = DateComponents()
+            comps.year = selectedYear
+            comps.month = selectedMonth
+            comps.day = 1
+            if let firstOfMonth = cal.date(from: comps),
+               let range = cal.range(of: .day, in: .month, for: firstOfMonth) {
+                comps.day = range.count
+                referenceDate = cal.date(from: comps) ?? Date()
+            } else {
+                referenceDate = Date()
+            }
+        }
+
         var result: [ChartDataPoint] = []
         for daysAgo in stride(from: 6, through: 0, by: -1) {
-            let day = cal.date(byAdding: .day, value: -daysAgo, to: now)!
+            let day = cal.date(byAdding: .day, value: -daysAgo, to: referenceDate)!
             let dayTotal = transactions.filter { txn in
                 txn.type == .expense && cal.isDate(txn.date, inSameDayAs: day)
             }.reduce(0) { $0 + abs($1.amount) }

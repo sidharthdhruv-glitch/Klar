@@ -17,6 +17,7 @@ struct ImportHubView: View {
     @State private var showParseError = false
     @State private var parseErrorMessage = ""
     @State private var currentParsingAccount = ""
+    @State private var currentImportSource: ImportSource = .csv
 
     var body: some View {
         ScrollView {
@@ -337,6 +338,7 @@ struct ImportHubView: View {
                     let duplicateDescs = Set(duplicates.map { $0.new.description })
                     let nonDuplicates = result.transactions.filter { !duplicateDescs.contains($0.description) }
 
+                    currentImportSource = result.source
                     pendingTransactions.append(contentsOf: nonDuplicates)
 
                     if !duplicates.isEmpty {
@@ -384,7 +386,7 @@ struct ImportHubView: View {
             category: category,
             account: account,
             type: row.type,
-            importSource: .csv,
+            importSource: currentImportSource,
             notes: row.description
         )
         modelContext.insert(transaction)
@@ -408,7 +410,7 @@ struct ImportHubView: View {
                 category: category,
                 account: account,
                 type: row.type,
-                importSource: .csv,
+                importSource: currentImportSource,
                 notes: row.description
             )
             modelContext.insert(transaction)

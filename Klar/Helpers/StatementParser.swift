@@ -19,6 +19,7 @@ actor StatementParser {
         let transactions: [ParsedRow]
         let errors: [String]
         let fileName: String
+        let source: ImportSource
     }
 
     // MARK: - Public API
@@ -81,7 +82,7 @@ actor StatementParser {
             errors.append("Could not extract any transactions. The PDF format may not be supported.")
         }
 
-        return ParseResult(transactions: transactions, errors: errors, fileName: fileName)
+        return ParseResult(transactions: transactions, errors: errors, fileName: fileName, source: .pdf)
     }
 
     // MARK: - Table Layout Detection
@@ -353,13 +354,33 @@ actor StatementParser {
             of: #"\b\d{2}[/-][A-Za-z]{3}[/-]\d{2,4}\b"#, with: " ", options: .regularExpression
         )
 
+        // Remove alphanumeric bank reference codes (e.g., AXISP00768252541, YESB0APLUPI, UTIB0001394)
+        // Pattern: 4+ uppercase letters followed by digits, or digits mixed with uppercase letters (min 8 chars)
+        desc = desc.replacingOccurrences(
+            of: #"\b[A-Z]{3,}[A-Z0-9]{5,}\b"#, with: "", options: .regularExpression
+        )
+        desc = desc.replacingOccurrences(
+            of: #"\b[A-Z0-9]{8,}\b"#, with: "", options: .regularExpression
+        )
+
         // Remove long reference numbers (6+ consecutive digits)
         desc = desc.replacingOccurrences(
             of: #"\b\d{6,}\b"#, with: "", options: .regularExpression
         )
 
+        // Remove standalone numbers that look like amounts (e.g., "12,128.00", "1,111.00")
+        desc = desc.replacingOccurrences(
+            of: #"\b\d{1,3}(,\d{2,3})*\.\d{2}\b"#, with: "", options: .regularExpression
+        )
+
+        // Remove standalone short numbers (1-4 digits) that are likely day/ref fragments
+        desc = desc.replacingOccurrences(
+            of: #"(?<=\s|^)\d{1,4}(?=\s|$)"#, with: "", options: .regularExpression
+        )
+
         // Remove common noise tokens
-        let noiseTokens = ["Chq No.", "Chq.", "Ref No.", "Ref:", "MICR:", "IFSC:", "Txn#"]
+        let noiseTokens = ["Chq No.", "Chq.", "Ref No.", "Ref:", "MICR:", "IFSC:", "Txn#",
+                           "THIS ST", "SENT", "RECEIVED", "USIN G", "USING"]
         for token in noiseTokens {
             desc = desc.replacingOccurrences(of: token, with: "", options: .caseInsensitive)
         }
@@ -447,7 +468,7 @@ actor StatementParser {
             }
         }
 
-        return ParseResult(transactions: transactions, errors: errors, fileName: fileName)
+        return ParseResult(transactions: transactions, errors: errors, fileName: fileName, source: .csv)
     }
 
     // MARK: - Line Parsing (Fallback)
@@ -721,32 +742,90 @@ struct AutoCategorizer {
         return keywordMatch(lower)
     }
 
-    /// Extract a merchant name from a bank description
+    /// Extract a merchant name from a bank description.
+    /// Handles Indian bank narration formats:
+    ///   UPI-MERCHANT-upiaddr-BANKCODE-REFNUM
+    ///   NEFT CR-REFNUM-SENDER NAME
+    ///   POS REFNUM MERCHANT NAME
+    ///   BIL/BPAY/REF/PAYEE
+    ///   FT - CR - - ACJF... (fund transfers)
     static func extractMerchant(from description: String) -> String {
         var cleaned = description
 
-        // Remove common UPI prefixes
-        let upiPrefixes = ["UPI/", "UPI-", "NEFT/", "NEFT-", "IMPS/", "IMPS-", "POS/", "POS ",
-                           "ATM/", "ATM-", "BIL/", "BIL-", "EMI/", "SI/", "ACH/"]
-        for prefix in upiPrefixes {
-            if cleaned.uppercased().hasPrefix(prefix) {
+        // Remove common transaction type prefixes
+        let prefixes = ["UPI/", "UPI-", "NEFT/", "NEFT-", "NEFT CR-", "NEFT CR/", "NEFT DR-", "NEFT DR/",
+                        "IMPS/", "IMPS-", "POS/", "POS ", "ATM/", "ATM-", "ATM ",
+                        "BIL/", "BIL-", "BPAY/", "EMI/", "SI/", "ACH/", "ACH-",
+                        "FT - CR - -", "FT - DR - -", "FT-CR-", "FT-DR-",
+                        "FT - CR", "FT - DR", "FT-CR", "FT-DR",
+                        "BY TRANSFER-", "BY CLG-", "TO TRANSFER-"]
+        // Sort by length descending so longer prefixes match first
+        let sortedPrefixes = prefixes.sorted { $0.count > $1.count }
+        for prefix in sortedPrefixes {
+            if cleaned.uppercased().hasPrefix(prefix.uppercased()) {
                 cleaned = String(cleaned.dropFirst(prefix.count))
+                break // Only remove the first matching prefix
             }
         }
 
-        // Remove reference numbers (sequences of digits > 6 chars)
+        // For UPI: split by - or / and take the merchant name part (usually 2nd segment)
+        // Format: UPI-MERCHANT-upiaddr-BANKCODE-REFNUM
+        if description.uppercased().hasPrefix("UPI") {
+            let segments = cleaned.components(separatedBy: CharacterSet(charactersIn: "-/"))
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            if let merchantSegment = segments.first(where: { segment in
+                let s = segment.lowercased()
+                // Skip segments that look like references, UPI addresses, or bank codes
+                return !s.contains("@") &&
+                       s.range(of: #"^\d+$"#, options: .regularExpression) == nil &&
+                       s.range(of: #"^[A-Z]{3,}\d{4,}"#, options: .regularExpression) == nil &&
+                       s.count > 2
+            }) {
+                cleaned = merchantSegment
+            }
+        }
+
+        // Remove alphanumeric bank codes (AXISP00768252541, YESB0APLUPI, UTIB0001394)
         cleaned = cleaned.replacingOccurrences(
-            of: "\\b\\d{6,}\\b", with: "", options: .regularExpression
+            of: #"\b[A-Z]{3,}[A-Z0-9]{5,}\b"#, with: "", options: .regularExpression
+        )
+        cleaned = cleaned.replacingOccurrences(
+            of: #"\b[A-Z0-9]{8,}\b"#, with: "", options: .regularExpression
         )
 
-        // Remove trailing slashes, dashes, and clean up
-        cleaned = cleaned.components(separatedBy: "/").first ?? cleaned
-        cleaned = cleaned.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        // Remove reference numbers (6+ consecutive digits)
+        cleaned = cleaned.replacingOccurrences(
+            of: #"\b\d{6,}\b"#, with: "", options: .regularExpression
+        )
 
-        // Capitalize nicely
-        let words = cleaned.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-        if words.isEmpty { return description.prefix(30).trimmingCharacters(in: .whitespaces) }
+        // Remove embedded amounts (e.g., "12,128.00")
+        cleaned = cleaned.replacingOccurrences(
+            of: #"\b\d{1,3}(,\d{2,3})*\.\d{2}\b"#, with: "", options: .regularExpression
+        )
 
+        // Remove UPI addresses (name@bank)
+        cleaned = cleaned.replacingOccurrences(
+            of: #"\S+@\S+"#, with: "", options: .regularExpression
+        )
+
+        // Remove noise fragments
+        let noiseWords: Set<String> = ["sent", "received", "usin", "using", "this", "st",
+                                        "cr", "dr", "ft", "acjf", "ach", "mb", "ib", "ob"]
+        var words = cleaned.components(separatedBy: CharacterSet(charactersIn: "-/ "))
+            .map { $0.trimmingCharacters(in: CharacterSet.alphanumerics.inverted) }
+            .filter { !$0.isEmpty && !noiseWords.contains($0.lowercased()) }
+
+        // Remove any remaining pure-digit words
+        words = words.filter { $0.range(of: #"^\d+$"#, options: .regularExpression) == nil }
+
+        if words.isEmpty {
+            // Fallback: use first meaningful part of original
+            let fallback = description.prefix(30).trimmingCharacters(in: .whitespaces)
+            return fallback.isEmpty ? "Unknown" : fallback
+        }
+
+        // Capitalize nicely - take up to 3 meaningful words
         return words.prefix(3).map { word in
             if word.count <= 3 { return word.uppercased() }
             return word.prefix(1).uppercased() + word.dropFirst().lowercased()
@@ -754,6 +833,26 @@ struct AutoCategorizer {
     }
 
     private static func keywordMatch(_ text: String) -> String {
+        // Use word boundary matching to avoid false positives like "health" matching inside other words
+        func containsWord(_ keyword: String) -> Bool {
+            // For multi-word keywords, plain contains is fine
+            if keyword.contains(" ") || keyword.contains("&") {
+                return text.contains(keyword)
+            }
+            // For single words, match on word boundaries to avoid partial matches
+            // e.g., "bus" shouldn't match "business", "auto" shouldn't match "autocomplete"
+            if keyword.count <= 3 {
+                // Short keywords: require word boundary
+                return text.range(of: #"\b"# + NSRegularExpression.escapedPattern(for: keyword) + #"\b"#,
+                                  options: .regularExpression) != nil
+            }
+            return text.contains(keyword)
+        }
+
+        let incomeKeywords = ["salary", "credit interest", "refund", "cashback", "dividend",
+                              "rent received", "freelance", "payment received", "bonus",
+                              "neft cr", "imps cr", "by transfer"]
+
         let foodKeywords = ["zomato", "swiggy", "food", "restaurant", "cafe", "pizza",
                             "burger", "domino", "mcdonald", "kfc", "starbucks", "dunkin",
                             "grocery", "grocer", "bigbasket", "blinkit", "instamart",
@@ -763,7 +862,7 @@ struct AutoCategorizer {
 
         let transportKeywords = ["uber", "ola", "rapido", "petrol", "diesel", "fuel",
                                   "parking", "toll", "fastag", "metro", "railway", "irctc",
-                                  "bus", "cab", "auto", "rickshaw", "car wash", "service station",
+                                  "car wash", "service station",
                                   "indian oil", "bharat petroleum", "hp petrol", "shell"]
 
         let shoppingKeywords = ["amazon", "flipkart", "myntra", "ajio", "meesho", "nykaa",
@@ -778,30 +877,33 @@ struct AutoCategorizer {
 
         let healthKeywords = ["pharmacy", "medical", "hospital", "doctor", "clinic",
                               "apollo", "medplus", "netmeds", "pharmeasy", "1mg",
-                              "health", "gym", "fitness", "yoga", "lab", "diagnostic",
-                              "insurance premium", "star health", "max bupa"]
+                              "gym", "fitness", "yoga", "diagnostic",
+                              "star health", "max bupa", "health insurance"]
 
         let utilityKeywords = ["electricity", "electric", "power", "bescom", "tata power",
                                "water bill", "gas bill", "internet", "broadband", "wifi",
-                               "jio", "airtel", "vodafone", "bsnl", "phone", "mobile",
+                               "airtel", "vodafone", "bsnl", "phone", "mobile",
                                "recharge", "dth", "piped gas", "lpg", "maintenance", "society"]
 
-        let financeKeywords = ["mutual fund", "sip", "fd ", "fixed deposit", "rd ",
+        let financeKeywords = ["mutual fund", "sip", "fixed deposit",
                                 "recurring deposit", "loan", "emi", "premium", "lic",
                                 "investment", "stock", "share", "demat", "zerodha",
                                 "groww", "kuvera", "ppf", "nps", "interest"]
 
-        let incomeKeywords = ["salary", "credit interest", "refund", "cashback", "dividend",
-                              "rent received", "freelance", "payment received", "bonus"]
+        // Bank fees/charges
+        let bankKeywords = ["hdfc bank", "icici bank", "sbi", "axis bank", "kotak",
+                            "bank charge", "bank fee", "annual fee", "service charge",
+                            "gst", "stamp duty", "bank limited"]
 
-        if incomeKeywords.contains(where: { text.contains($0) }) { return "Income" }
-        if foodKeywords.contains(where: { text.contains($0) }) { return "Food" }
-        if transportKeywords.contains(where: { text.contains($0) }) { return "Transport" }
-        if shoppingKeywords.contains(where: { text.contains($0) }) { return "Shopping" }
-        if entertainmentKeywords.contains(where: { text.contains($0) }) { return "Entertainment" }
-        if healthKeywords.contains(where: { text.contains($0) }) { return "Health" }
-        if utilityKeywords.contains(where: { text.contains($0) }) { return "Utilities" }
-        if financeKeywords.contains(where: { text.contains($0) }) { return "Finance" }
+        if incomeKeywords.contains(where: { containsWord($0) }) { return "Income" }
+        if foodKeywords.contains(where: { containsWord($0) }) { return "Food" }
+        if transportKeywords.contains(where: { containsWord($0) }) { return "Transport" }
+        if shoppingKeywords.contains(where: { containsWord($0) }) { return "Shopping" }
+        if entertainmentKeywords.contains(where: { containsWord($0) }) { return "Entertainment" }
+        if healthKeywords.contains(where: { containsWord($0) }) { return "Health" }
+        if utilityKeywords.contains(where: { containsWord($0) }) { return "Utilities" }
+        if financeKeywords.contains(where: { containsWord($0) }) { return "Finance" }
+        if bankKeywords.contains(where: { containsWord($0) }) { return "Finance" }
 
         return "Misc"
     }
