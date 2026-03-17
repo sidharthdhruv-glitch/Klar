@@ -65,16 +65,30 @@ actor StatementParser {
             throw ParserError.noTextContent
         }
 
-        let lines = allText.components(separatedBy: .newlines)
+        // Preprocess: split merged columns at date/number boundaries
+        let preprocessed = preprocessText(allText)
+
+        let lines = preprocessed.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
-        // Strategy 1: Column-aware parsing (detects table header, handles multi-line narrations)
+        // Strategy 1: Column-aware parsing with value date handling
         var transactions = parseColumnAware(lines: lines)
 
-        // Strategy 2: Enhanced line-by-line parsing as fallback
-        if transactions.isEmpty {
-            transactions = parseLineByLine(lines: lines)
+        // Strategy 2: Date-anchored parsing (scans entire text for date→amount patterns)
+        if transactions.count < 10 {
+            let anchored = parseDateAnchored(text: preprocessed)
+            if anchored.count > transactions.count {
+                transactions = anchored
+            }
+        }
+
+        // Strategy 3: Line-by-line fallback
+        if transactions.count < 5 {
+            let lineByLine = parseLineByLine(lines: lines)
+            if lineByLine.count > transactions.count {
+                transactions = lineByLine
+            }
         }
 
         var errors: [String] = []
@@ -83,6 +97,46 @@ actor StatementParser {
         }
 
         return ParseResult(transactions: transactions, errors: errors, fileName: fileName, source: .pdf)
+    }
+
+    // MARK: - Text Preprocessing
+
+    /// Splits merged column text at date and number boundaries.
+    /// PDFKit often merges adjacent columns without spaces, e.g.:
+    ///   "1,57,370.0002/02/2026" → "1,57,370.00\n02/02/2026"
+    ///   "943.00157370.00" → "943.00 157370.00"
+    private func preprocessText(_ text: String) -> String {
+        var result = text
+
+        // Split before date patterns that are stuck to preceding text (no whitespace separator)
+        // e.g., "1,57,370.0002/02/2026" → "1,57,370.00\n02/02/2026"
+        let dateStarts = [
+            #"([^\s\n])(\d{2}[/-]\d{2}[/-]\d{4})"#,
+            #"([^\s\n])(\d{2}[/-]\d{2}[/-]\d{2}(?!\d))"#,
+            #"([^\s\n])(\d{2}[/-][A-Za-z]{3}[/-]\d{4})"#,
+            #"([^\s\n])(\d{2}[/-][A-Za-z]{3}[/-]\d{2}(?!\d))"#,
+        ]
+        for pattern in dateStarts {
+            result = result.replacingOccurrences(of: pattern, with: "$1\n$2", options: .regularExpression)
+        }
+
+        // Split between amounts stuck together: "943.001,57,370.00" → "943.00 1,57,370.00"
+        // Bank amounts always have exactly 2 decimal places, so .XX followed by digit = boundary
+        result = result.replacingOccurrences(
+            of: #"(\.\d{2})(\d)"#, with: "$1 $2", options: .regularExpression
+        )
+
+        // Split where a digit runs into a letter: "943.00UPI" → "943.00 UPI"
+        result = result.replacingOccurrences(
+            of: #"(\d)([A-Za-z])"#, with: "$1 $2", options: .regularExpression
+        )
+
+        // Split where a letter runs into a date-like digit pair: "TRANSFER02/02" → "TRANSFER 02/02"
+        result = result.replacingOccurrences(
+            of: #"([A-Za-z])(\d{2}[/-])"#, with: "$1 $2", options: .regularExpression
+        )
+
+        return result
     }
 
     // MARK: - Table Layout Detection
@@ -150,8 +204,10 @@ actor StatementParser {
         func flushTransaction() {
             guard let date = currentDate, !currentNumbers.isEmpty else { return }
 
-            let cleanDesc = cleanDescription(currentDesc)
-            guard !cleanDesc.isEmpty else { return }
+            var cleanDesc = cleanDescription(currentDesc)
+            // Don't drop transactions just because description is empty —
+            // use a placeholder so we preserve the date and amount
+            if cleanDesc.isEmpty { cleanDesc = "Transaction" }
 
             let (amount, type) = resolveAmount(
                 numbers: currentNumbers,
@@ -174,15 +230,46 @@ actor StatementParser {
             if isPageHeaderOrFooter(line) { continue }
 
             if let (date, remaining) = extractDate(from: line) {
-                // Flush previous transaction
-                flushTransaction()
-
-                // Start new transaction
-                currentDate = date
                 let (desc, nums, crdr) = extractTrailingNumbers(from: remaining)
-                currentDesc = desc
-                currentNumbers = nums
-                currentCrDr = crdr
+
+                // KEY: Detect if this is a VALUE DATE (part of previous transaction)
+                // rather than a new transaction date.
+                // A value date typically:
+                //   1. Has no description after it (just numbers or empty)
+                //   2. The previous transaction has no amounts yet (waiting for them)
+                //   3. OR it's the same/close date and adds amounts to complete the previous txn
+                let descIsEmpty = desc.trimmingCharacters(in: .whitespaces).isEmpty ||
+                                  desc.range(of: #"^[\d,.\s]+$"#, options: .regularExpression) != nil // all digits/commas
+                let prevHasNoAmounts = currentDate != nil && currentNumbers.isEmpty
+                let prevHasAmounts = currentDate != nil && !currentNumbers.isEmpty
+
+                let daysDiff: Int = {
+                    guard let prev = currentDate else { return 999 }
+                    return abs(Calendar.current.dateComponents([.day], from: prev, to: date).day ?? 999)
+                }()
+
+                // It's a value date if:
+                // - Previous txn exists with no amounts, and this line has no description (just amounts)
+                // - OR previous txn exists, dates are very close, and this line is just amounts
+                let isValueDate = (prevHasNoAmounts && descIsEmpty && !nums.isEmpty) ||
+                                  (prevHasNoAmounts && daysDiff <= 1) ||
+                                  (prevHasAmounts && descIsEmpty && !nums.isEmpty && daysDiff <= 1)
+
+                if isValueDate {
+                    // Merge into current transaction: add amounts
+                    if !desc.isEmpty && !descIsEmpty {
+                        currentDesc += " " + desc
+                    }
+                    currentNumbers.append(contentsOf: nums)
+                    if let cr = crdr { currentCrDr = cr }
+                } else {
+                    // Genuine new transaction
+                    flushTransaction()
+                    currentDate = date
+                    currentDesc = desc
+                    currentNumbers = nums
+                    currentCrDr = crdr
+                }
             } else if currentDate != nil {
                 // Continuation line (multi-line narration or additional numbers)
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -193,8 +280,8 @@ actor StatementParser {
                     currentDesc += " " + desc
                 }
                 if !nums.isEmpty {
-                    // If we haven't collected enough numbers yet, add these
-                    if currentNumbers.count < expectedNumCols + 1 {
+                    // Keep collecting numbers (up to a reasonable limit)
+                    if currentNumbers.count < expectedNumCols + 2 {
                         currentNumbers.append(contentsOf: nums)
                     }
                     if let cr = crdr { currentCrDr = cr }
@@ -204,6 +291,150 @@ actor StatementParser {
 
         // Flush last transaction
         flushTransaction()
+
+        return transactions
+    }
+
+    // MARK: - Date-Anchored Parsing (Fallback Strategy)
+
+    /// Scans the entire text for all date occurrences, then extracts transactions
+    /// by looking at the text between consecutive transaction dates.
+    /// This handles cases where PDFKit output doesn't have clean line breaks.
+    private func parseDateAnchored(text: String) -> [ParsedRow] {
+        struct DateOccurrence {
+            let date: Date
+            let startPosition: Int
+            let endPosition: Int
+        }
+
+        let nsText = text as NSString
+        let patterns = [
+            "\\d{2}[/-]\\d{2}[/-]\\d{4}",
+            "\\d{2}[/-]\\d{2}[/-]\\d{2}(?!\\d)",
+            "\\d{2}[/-][A-Za-z]{3}[/-]\\d{4}",
+            "\\d{2}[/-][A-Za-z]{3}[/-]\\d{2}(?!\\d)",
+            "\\d{2}\\s+[A-Za-z]{3}\\s+\\d{4}",
+            "\\d{2}\\s+[A-Za-z]{3}\\s+\\d{2}(?!\\d)",
+        ]
+
+        var allDates: [DateOccurrence] = []
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+            for match in matches {
+                let dateStr = nsText.substring(with: match.range).trimmingCharacters(in: .whitespaces)
+                for formatter in Self.dateFormatters {
+                    if let date = formatter.date(from: dateStr) {
+                        allDates.append(DateOccurrence(
+                            date: fixCentury(date),
+                            startPosition: match.range.location,
+                            endPosition: match.range.location + match.range.length
+                        ))
+                        break
+                    }
+                }
+            }
+        }
+
+        // Sort by position and remove overlapping
+        allDates.sort { $0.startPosition < $1.startPosition }
+        var filtered: [DateOccurrence] = []
+        var lastEnd = -1
+        for dp in allDates {
+            if dp.startPosition >= lastEnd {
+                filtered.append(dp)
+                lastEnd = dp.endPosition
+            }
+        }
+        allDates = filtered
+
+        guard allDates.count >= 2 else { return [] }
+
+        // Classify each date: does text after it look like a narration or just amounts?
+        // Transaction dates have narration (letters) following them.
+        // Value dates have only numbers following them.
+        struct ClassifiedDate {
+            let date: Date
+            let endPosition: Int
+            let isTransactionDate: Bool // true = starts a transaction, false = value date
+        }
+
+        var classified: [ClassifiedDate] = []
+        for (idx, dp) in allDates.enumerated() {
+            let lookAheadStart = dp.endPosition
+            let lookAheadEnd = min(dp.endPosition + 40, idx + 1 < allDates.count ? allDates[idx + 1].startPosition : nsText.length)
+            guard lookAheadStart < lookAheadEnd else {
+                classified.append(ClassifiedDate(date: dp.date, endPosition: dp.endPosition, isTransactionDate: false))
+                continue
+            }
+            let afterText = nsText.substring(with: NSRange(location: lookAheadStart, length: lookAheadEnd - lookAheadStart))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // If what follows starts with letters (narration), it's a transaction date
+            let startsWithLetters = afterText.range(of: #"^[A-Za-z]"#, options: .regularExpression) != nil
+            classified.append(ClassifiedDate(date: dp.date, endPosition: dp.endPosition, isTransactionDate: startsWithLetters))
+        }
+
+        // Build transactions from classified dates
+        var transactions: [ParsedRow] = []
+        var i = 0
+        while i < classified.count {
+            guard classified[i].isTransactionDate else { i += 1; continue }
+
+            let txnDate = classified[i].date
+            let textStart = classified[i].endPosition
+
+            // Find the start of the NEXT transaction date
+            var nextTxnStart = nsText.length
+            var j = i + 1
+            while j < classified.count {
+                if classified[j].isTransactionDate {
+                    nextTxnStart = classified[j].endPosition - (classified[j].endPosition > 10 ? 10 : 0)
+                    // Back up to the start of the date match — find it
+                    // Actually we need the startPosition, but we only stored endPosition.
+                    // Use the date pattern length as estimate
+                    nextTxnStart = max(textStart, nextTxnStart - 10)
+                    break
+                }
+                j += 1
+            }
+
+            // For simplicity, find the actual start of the next transaction's date
+            // by searching backwards from nextTxnStart for the date
+            if j < classified.count {
+                // Find the position of the next transaction date in allDates
+                for dp in allDates {
+                    if dp.endPosition == classified[j].endPosition {
+                        nextTxnStart = dp.startPosition
+                        break
+                    }
+                }
+            }
+
+            guard textStart < nextTxnStart else { i = j; continue }
+
+            let chunk = nsText.substring(with: NSRange(location: textStart, length: nextTxnStart - textStart))
+            let (desc, nums, crdr) = extractTrailingNumbers(from: chunk)
+
+            if !nums.isEmpty {
+                var cleanDesc = cleanDescription(desc)
+                if cleanDesc.isEmpty { cleanDesc = "Transaction" }
+
+                let (amount, type) = resolveAmount(
+                    numbers: nums,
+                    crDr: crdr,
+                    expectedColumns: 2,
+                    hasDebitCredit: false,
+                    description: cleanDesc
+                )
+
+                if amount > 0.001 {
+                    transactions.append(ParsedRow(date: txnDate, description: cleanDesc, amount: amount, type: type))
+                }
+            }
+
+            i = j
+        }
 
         return transactions
     }
@@ -481,8 +712,8 @@ actor StatementParser {
         let (desc, numbers, crDr) = extractTrailingNumbers(from: remaining)
         guard !numbers.isEmpty else { return nil }
 
-        let cleanDesc = cleanDescription(desc)
-        guard !cleanDesc.isEmpty else { return nil }
+        var cleanDesc = cleanDescription(desc)
+        if cleanDesc.isEmpty { cleanDesc = "Transaction" }
 
         let (amount, type) = resolveAmount(
             numbers: numbers,
