@@ -68,27 +68,348 @@ actor StatementParser {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
-        var transactions: [ParsedRow] = []
-        var errors: [String] = []
+        // Strategy 1: Column-aware parsing (detects table header, handles multi-line narrations)
+        var transactions = parseColumnAware(lines: lines)
 
-        for line in lines {
-            if let parsed = parseTransactionLine(line) {
-                transactions.append(parsed)
-            }
-        }
-
+        // Strategy 2: Enhanced line-by-line parsing as fallback
         if transactions.isEmpty {
-            // Try tabular format — some statements have columns separated by multiple spaces
-            let joined = lines.joined(separator: "\n")
-            let tabularRows = parseTabularStatement(joined)
-            transactions = tabularRows
+            transactions = parseLineByLine(lines: lines)
         }
 
+        var errors: [String] = []
         if transactions.isEmpty {
             errors.append("Could not extract any transactions. The PDF format may not be supported.")
         }
 
         return ParseResult(transactions: transactions, errors: errors, fileName: fileName)
+    }
+
+    // MARK: - Table Layout Detection
+
+    private struct TableLayout {
+        let headerIndex: Int
+        let numericColumnCount: Int // Expected trailing numeric columns (3 = debit+credit+balance, 2 = amount+balance)
+        let hasDebitCredit: Bool    // Separate debit/credit columns detected
+    }
+
+    private func detectTableLayout(lines: [String]) -> TableLayout? {
+        let headerKeywords: Set<String> = [
+            "date", "narration", "description", "particulars", "particular",
+            "withdrawal", "deposit", "debit", "credit", "balance",
+            "amount", "chq", "ref", "value", "details", "transaction"
+        ]
+
+        for (index, line) in lines.enumerated() {
+            let lower = line.lowercased()
+            let words = Set(
+                lower.components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { !$0.isEmpty }
+            )
+            let matchCount = words.intersection(headerKeywords).count
+
+            // Need at least 3 header keywords to consider it a table header
+            guard matchCount >= 3 else { continue }
+
+            let hasDebitCredit =
+                (lower.contains("withdrawal") || lower.contains("debit") || lower.range(of: #"\bdr\b"#, options: .regularExpression) != nil) &&
+                (lower.contains("deposit") || lower.contains("credit") || lower.range(of: #"\bcr\b"#, options: .regularExpression) != nil)
+            let hasBalance = lower.contains("balance") || lower.contains("closing")
+
+            let numCols: Int
+            if hasDebitCredit && hasBalance {
+                numCols = 3
+            } else if hasDebitCredit || hasBalance {
+                numCols = 2
+            } else {
+                numCols = 1
+            }
+
+            return TableLayout(
+                headerIndex: index,
+                numericColumnCount: numCols,
+                hasDebitCredit: hasDebitCredit
+            )
+        }
+        return nil
+    }
+
+    // MARK: - Column-Aware Parsing
+
+    private func parseColumnAware(lines: [String]) -> [ParsedRow] {
+        let layout = detectTableLayout(lines: lines)
+        let startIndex = (layout?.headerIndex ?? -1) + 1
+        let expectedNumCols = layout?.numericColumnCount ?? 2
+
+        var transactions: [ParsedRow] = []
+        var currentDate: Date?
+        var currentDesc: String = ""
+        var currentNumbers: [Double] = []
+        var currentCrDr: String?
+
+        func flushTransaction() {
+            guard let date = currentDate, !currentNumbers.isEmpty else { return }
+
+            let cleanDesc = cleanDescription(currentDesc)
+            guard !cleanDesc.isEmpty else { return }
+
+            let (amount, type) = resolveAmount(
+                numbers: currentNumbers,
+                crDr: currentCrDr,
+                expectedColumns: expectedNumCols,
+                hasDebitCredit: layout?.hasDebitCredit ?? false,
+                description: cleanDesc
+            )
+
+            guard amount > 0.001 else { return }
+
+            transactions.append(ParsedRow(date: date, description: cleanDesc, amount: amount, type: type))
+        }
+
+        for i in startIndex..<lines.count {
+            let line = lines[i]
+
+            // Skip separator lines, page headers/footers
+            if isSeparatorLine(line) { continue }
+            if isPageHeaderOrFooter(line) { continue }
+
+            if let (date, remaining) = extractDate(from: line) {
+                // Flush previous transaction
+                flushTransaction()
+
+                // Start new transaction
+                currentDate = date
+                let (desc, nums, crdr) = extractTrailingNumbers(from: remaining)
+                currentDesc = desc
+                currentNumbers = nums
+                currentCrDr = crdr
+            } else if currentDate != nil {
+                // Continuation line (multi-line narration or additional numbers)
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if looksLikeNonTransactionLine(trimmed) { continue }
+
+                let (desc, nums, crdr) = extractTrailingNumbers(from: trimmed)
+                if !desc.isEmpty {
+                    currentDesc += " " + desc
+                }
+                if !nums.isEmpty {
+                    // If we haven't collected enough numbers yet, add these
+                    if currentNumbers.count < expectedNumCols + 1 {
+                        currentNumbers.append(contentsOf: nums)
+                    }
+                    if let cr = crdr { currentCrDr = cr }
+                }
+            }
+        }
+
+        // Flush last transaction
+        flushTransaction()
+
+        return transactions
+    }
+
+    // MARK: - Trailing Number Extraction
+
+    /// Extracts numeric values from the trailing (right) side of a text string.
+    /// Works right-to-left, stopping at the first non-numeric token.
+    /// Handles Indian number formatting (1,57,370.00) and Cr/Dr markers.
+    private func extractTrailingNumbers(from text: String) -> (description: String, numbers: [Double], crDr: String?) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return ("", [], nil) }
+
+        // Split into tokens by whitespace
+        let tokens = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        var numbers: [Double] = []
+        var descEndIndex = tokens.count
+        var crDr: String?
+
+        for i in stride(from: tokens.count - 1, through: 0, by: -1) {
+            let token = tokens[i]
+            let lower = token.lowercased()
+
+            // Check for Cr/Dr markers
+            if lower == "cr" || lower == "dr" || lower == "cr." || lower == "dr." {
+                crDr = lower.hasPrefix("cr") ? "cr" : "dr"
+                descEndIndex = i
+                continue
+            }
+
+            // Check for number (Indian format: 1,57,370.00 or standard: 1,234.56 or plain: 943)
+            let cleaned = token.replacingOccurrences(of: ",", with: "")
+            let isNegative = cleaned.hasPrefix("-") || cleaned.hasPrefix("+")
+            let absStr = isNegative ? String(cleaned.dropFirst()) : cleaned
+
+            if absStr.range(of: #"^\d+\.?\d*$"#, options: .regularExpression) != nil,
+               let num = Double(cleaned) {
+                numbers.insert(abs(num), at: 0)
+                if cleaned.hasPrefix("-") { crDr = "dr" }
+                if cleaned.hasPrefix("+") { crDr = "cr" }
+                descEndIndex = i
+            } else {
+                break // Stop at first non-number token from the right
+            }
+        }
+
+        let description = tokens[0..<descEndIndex].joined(separator: " ")
+        return (description, numbers, crDr)
+    }
+
+    // MARK: - Amount Resolution
+
+    /// Given the extracted trailing numbers and context, determine the actual transaction amount
+    /// and whether it's income or expense.
+    /// Key insight: In Indian bank statements, the LAST number is usually the running balance.
+    /// Debit/Credit amounts come before the balance.
+    private func resolveAmount(
+        numbers: [Double],
+        crDr: String?,
+        expectedColumns: Int,
+        hasDebitCredit: Bool,
+        description: String
+    ) -> (Double, TransactionType) {
+        guard !numbers.isEmpty else { return (0, .expense) }
+
+        // Check description for income hints
+        let lower = description.lowercased()
+        let incomeHints = ["salary", "credit", "neft cr", "imps cr", "deposit", "refund",
+                           "cashback", "interest", "dividend", "received", "reversal",
+                           "cash dep", "by transfer", "by clg"]
+        let isLikelyIncome = crDr == "cr" || incomeHints.contains(where: { lower.contains($0) })
+        let type: TransactionType = isLikelyIncome ? .income : .expense
+
+        if numbers.count == 1 {
+            return (numbers[0], type)
+        }
+
+        if numbers.count == 2 {
+            let first = numbers[0]
+            let second = numbers[1]
+
+            // If one is 0, the other is debit or credit, and there's no balance column visible
+            if first == 0 && second > 0 {
+                return (second, .income)
+            }
+            if second == 0 && first > 0 {
+                return (first, .expense)
+            }
+
+            // Heuristic: the larger number is likely the balance
+            // In most cases, individual transaction < running balance
+            if second > first * 2 {
+                // First is transaction amount, second is balance
+                return (first, type)
+            } else if first > second * 2 {
+                // First is balance, second is the transaction amount (unusual column order)
+                return (second, type)
+            }
+
+            // Similar magnitude — assume first=amount, second=balance (standard order)
+            return (first, type)
+        }
+
+        if numbers.count >= 3 {
+            // Common layout: Debit, Credit, Balance (last is always balance)
+            let debit = numbers[0]
+            let credit = numbers[1]
+            // Skip balance (last number)
+
+            if debit > 0 && credit == 0 {
+                return (debit, .expense)
+            } else if credit > 0 && debit == 0 {
+                return (credit, .income)
+            } else if debit > 0 && credit > 0 {
+                // Both non-zero — possible multi-column layout or parsing artifact
+                // The non-balance column with the smaller value is likely the transaction
+                let balance = numbers.last ?? 0
+                if abs(balance - credit) < 1 || credit > debit * 5 {
+                    // Credit looks like balance; debit is the transaction
+                    return (debit, .expense)
+                } else if abs(balance - debit) < 1 || debit > credit * 5 {
+                    // Debit looks like balance; credit is the transaction
+                    return (credit, .income)
+                }
+                // Default: smaller is the transaction
+                return debit < credit ? (debit, .expense) : (credit, .income)
+            }
+
+            // All zeros except possibly the last — skip
+            for num in numbers.dropLast() where num > 0 {
+                return (num, type)
+            }
+        }
+
+        return (numbers[0], .expense)
+    }
+
+    // MARK: - Description Cleaning
+
+    private func cleanDescription(_ raw: String) -> String {
+        var desc = raw.trimmingCharacters(in: .whitespaces)
+
+        // Remove embedded value dates (dd/mm/yyyy, dd-mm-yyyy, dd-MMM-yy patterns)
+        desc = desc.replacingOccurrences(
+            of: #"\b\d{2}[/-]\d{2}[/-]\d{2,4}\b"#, with: " ", options: .regularExpression
+        )
+        desc = desc.replacingOccurrences(
+            of: #"\b\d{2}[/-][A-Za-z]{3}[/-]\d{2,4}\b"#, with: " ", options: .regularExpression
+        )
+
+        // Remove long reference numbers (6+ consecutive digits)
+        desc = desc.replacingOccurrences(
+            of: #"\b\d{6,}\b"#, with: "", options: .regularExpression
+        )
+
+        // Remove common noise tokens
+        let noiseTokens = ["Chq No.", "Chq.", "Ref No.", "Ref:", "MICR:", "IFSC:", "Txn#"]
+        for token in noiseTokens {
+            desc = desc.replacingOccurrences(of: token, with: "", options: .caseInsensitive)
+        }
+
+        // Collapse multiple spaces and trim
+        desc = desc.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+        desc = desc.trimmingCharacters(in: .whitespacesAndNewlines)
+        desc = desc.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+
+        return desc
+    }
+
+    // MARK: - Utility Helpers
+
+    private func isSeparatorLine(_ line: String) -> Bool {
+        let stripped = line.replacingOccurrences(of: " ", with: "")
+        guard !stripped.isEmpty else { return true }
+        return stripped.allSatisfy { "-=*_.|+".contains($0) }
+    }
+
+    private func isPageHeaderOrFooter(_ line: String) -> Bool {
+        let lower = line.lowercased()
+        return (lower.contains("page ") && lower.contains(" of ")) ||
+               lower.contains("statement of account") ||
+               lower.hasPrefix("opening balance") ||
+               lower.hasPrefix("closing balance") ||
+               lower.hasPrefix("generated") ||
+               lower.contains("this is a computer generated") ||
+               lower.contains("contents of this") ||
+               lower.contains("branch :") ||
+               lower.contains("account no")
+    }
+
+    private func looksLikeNonTransactionLine(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let nonTxnKeywords = ["opening balance", "closing balance", "total", "page ",
+                              "statement summary", "branch", "ifsc", "address",
+                              "account number", "customer id", "nomination"]
+        return nonTxnKeywords.contains(where: { lower.contains($0) })
+    }
+
+    /// Fallback: enhanced line-by-line parsing (uses same infrastructure)
+    private func parseLineByLine(lines: [String]) -> [ParsedRow] {
+        var transactions: [ParsedRow] = []
+        for line in lines {
+            if let parsed = parseTransactionLine(line) {
+                transactions.append(parsed)
+            }
+        }
+        return transactions
     }
 
     // MARK: - CSV Parsing
@@ -129,39 +450,30 @@ actor StatementParser {
         return ParseResult(transactions: transactions, errors: errors, fileName: fileName)
     }
 
-    // MARK: - Line Parsing Helpers
+    // MARK: - Line Parsing (Fallback)
 
-    /// Attempts to parse a single text line as a transaction.
-    /// Handles common bank statement formats:
-    ///   "12/03/2026  NEFT-SALARY  250,000.00 Cr"
-    ///   "15-Mar-2026  UPI/Zomato/12345  1,254.00  Dr"
+    /// Attempts to parse a single text line as a transaction using the improved
+    /// trailing-number extraction approach.
     private func parseTransactionLine(_ line: String) -> ParsedRow? {
-        // Try to find a date at the start
         guard let (date, remaining) = extractDate(from: line) else { return nil }
 
-        // Try to find amount (with commas, decimals)
-        guard let (amount, description, type) = extractAmount(from: remaining) else { return nil }
+        let (desc, numbers, crDr) = extractTrailingNumbers(from: remaining)
+        guard !numbers.isEmpty else { return nil }
 
-        let cleanDesc = description
-            .trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
-
+        let cleanDesc = cleanDescription(desc)
         guard !cleanDesc.isEmpty else { return nil }
 
-        return ParsedRow(date: date, description: cleanDesc, amount: abs(amount), type: type)
-    }
+        let (amount, type) = resolveAmount(
+            numbers: numbers,
+            crDr: crDr,
+            expectedColumns: 2,
+            hasDebitCredit: false,
+            description: cleanDesc
+        )
 
-    /// Parse tabular bank statement text where rows have consistent column positions
-    private func parseTabularStatement(_ text: String) -> [ParsedRow] {
-        var results: [ParsedRow] = []
-        let lines = text.components(separatedBy: .newlines)
+        guard amount > 0.001 else { return nil }
 
-        for line in lines {
-            if let parsed = parseTransactionLine(line) {
-                results.append(parsed)
-            }
-        }
-        return results
+        return ParsedRow(date: date, description: cleanDesc, amount: amount, type: type)
     }
 
     // MARK: - Date Extraction
@@ -186,11 +498,11 @@ actor StatementParser {
         // Try matching date patterns at start of line
         let datePatterns = [
             "\\d{2}[/-]\\d{2}[/-]\\d{4}",
-            "\\d{2}[/-]\\d{2}[/-]\\d{2}",
+            "\\d{2}[/-]\\d{2}[/-]\\d{2}(?!\\d)",
             "\\d{2}[/-][A-Za-z]{3}[/-]\\d{4}",
-            "\\d{2}[/-][A-Za-z]{3}[/-]\\d{2}",
+            "\\d{2}[/-][A-Za-z]{3}[/-]\\d{2}(?!\\d)",
             "\\d{2}\\s+[A-Za-z]{3}\\s+\\d{4}",
-            "\\d{2}\\s+[A-Za-z]{3}\\s+\\d{2}",
+            "\\d{2}\\s+[A-Za-z]{3}\\s+\\d{2}(?!\\d)",
             "\\d{4}[/-]\\d{2}[/-]\\d{2}",
             "[A-Za-z]{3}\\s+\\d{2},?\\s+\\d{4}",
         ]
@@ -206,83 +518,24 @@ actor StatementParser {
             for formatter in Self.dateFormatters {
                 if let date = formatter.date(from: dateStr) {
                     let remaining = String(line[range.upperBound...])
-                    return (date, remaining)
+                    let fixedDate = fixCentury(date)
+                    return (fixedDate, remaining)
                 }
             }
         }
         return nil
     }
 
-    // MARK: - Amount Extraction
-
-    private func extractAmount(from text: String) -> (Double, String, TransactionType)? {
-        // Match amounts like: 1,254.00, 250000.00, 1254, etc.
-        // Also look for Cr/Dr, +/- indicators
-        let amountPattern = "([\\d,]+\\.?\\d*)\\s*(Cr|Dr|CR|DR|cr|dr)?\\s*$"
-
-        // Also try: amount might be in middle with Cr/Dr
-        let patterns = [
-            // Amount at end with Cr/Dr
-            "(.+?)\\s+([\\d,]+\\.?\\d*)\\s*(Cr|Dr|CR|DR|cr|dr)\\s*$",
-            // Two amount columns (debit/credit) common in bank statements
-            "(.+?)\\s+([\\d,]+\\.?\\d*)\\s+([\\d,]+\\.?\\d*)\\s*$",
-            // Single amount at end
-            "(.+?)\\s+(-?[\\d,]+\\.?\\d*)\\s*$",
-            // Amount with prefix sign
-            "(.+?)\\s+([+-]\\s*[\\d,]+\\.?\\d*)\\s*$",
-        ]
-
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern),
-                  let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else {
-                continue
-            }
-
-            let groupCount = match.numberOfRanges
-
-            if groupCount == 4 {
-                // Check if this is description + amount + Cr/Dr
-                if let descRange = Range(match.range(at: 1), in: text),
-                   let amtRange = Range(match.range(at: 2), in: text),
-                   let typeRange = Range(match.range(at: 3), in: text) {
-
-                    let desc = String(text[descRange])
-                    let amtStr = String(text[amtRange]).replacingOccurrences(of: ",", with: "")
-                    let typeStr = String(text[typeRange]).lowercased()
-
-                    if let amount = Double(amtStr) {
-                        let type: TransactionType = typeStr == "cr" ? .income : .expense
-                        return (amount, desc, type)
-                    }
-
-                    // Could be two amount columns (debit | credit)
-                    let secondAmtStr = String(text[typeRange]).replacingOccurrences(of: ",", with: "")
-                    if let debit = Double(amtStr), debit > 0, let credit = Double(secondAmtStr), credit > 0 {
-                        // If first column has value → debit, second → credit
-                        return (debit, desc, .expense)
-                    } else if let debit = Double(amtStr), debit > 0 {
-                        return (debit, desc, .expense)
-                    }
-                }
-            }
-
-            if groupCount == 3 {
-                if let descRange = Range(match.range(at: 1), in: text),
-                   let amtRange = Range(match.range(at: 2), in: text) {
-                    let desc = String(text[descRange])
-                    var amtStr = String(text[amtRange])
-                        .replacingOccurrences(of: ",", with: "")
-                        .replacingOccurrences(of: " ", with: "")
-                    let isNegative = amtStr.hasPrefix("-")
-                    amtStr = amtStr.replacingOccurrences(of: "+", with: "").replacingOccurrences(of: "-", with: "")
-                    if let amount = Double(amtStr), amount > 0 {
-                        let type: TransactionType = isNegative ? .expense : .income
-                        return (amount, desc, amount > 100000 && !isNegative ? .income : type)
-                    }
-                }
-            }
+    /// Fix 2-digit year parsing: year 26 → 2026, not 0026
+    private func fixCentury(_ date: Date) -> Date {
+        let calendar = Calendar.current
+        let year = calendar.component(.year, from: date)
+        if year < 100 {
+            var components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+            components.year = year + 2000
+            return calendar.date(from: components) ?? date
         }
-        return nil
+        return date
     }
 
     // MARK: - CSV Helpers
