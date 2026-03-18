@@ -52,7 +52,7 @@ struct DonutChart: View {
                 Text(CurrencyHelper.format(total))
                     .font(KlarFonts.heading(18))
                     .monospacedDigit()
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
                 Text("TOTAL")
                     .font(KlarFonts.label(10))
                     .tracking(1)

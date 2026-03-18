@@ -35,7 +35,6 @@ struct SpendingTrendsView: View {
             dayTotals[day, default: 0] += abs(txn.amount)
         }
 
-        // For current month, show up to today; for past months, show all days
         let maxDay: Int
         if isCurrentMonth {
             maxDay = cal.component(.day, from: Date())
@@ -69,7 +68,6 @@ struct SpendingTrendsView: View {
     private var averageLineData: [ChartDataPoint] {
         let cal = Calendar.current
 
-        // Build a reference date for the selected month
         var selectedComps = DateComponents()
         selectedComps.year = selectedYear
         selectedComps.month = selectedMonth
@@ -123,8 +121,6 @@ struct SpendingTrendsView: View {
     private var weeklyData: [ChartDataPoint] {
         let cal = Calendar.current
 
-        // For current month, show last 7 days from today
-        // For past months, show last 7 days of that month
         let referenceDate: Date
         if isCurrentMonth {
             referenceDate = Date()
@@ -162,7 +158,7 @@ struct SpendingTrendsView: View {
     }
 
     var body: some View {
-        KlarCard {
+        KlarCard(dashedBorder: true) {
             VStack(alignment: .leading, spacing: 16) {
                 SectionHeader(title: "SPENDING TRENDS")
 
@@ -176,7 +172,7 @@ struct SpendingTrendsView: View {
                 HStack(spacing: 16) {
                     HStack(spacing: 6) {
                         RoundedRectangle(cornerRadius: 1)
-                            .fill(Color.white)
+                            .fill(KlarColors.accent)
                             .frame(width: 16, height: 2)
                         Text("Current Month")
                             .font(KlarFonts.label(10))
@@ -184,7 +180,7 @@ struct SpendingTrendsView: View {
                     }
                     HStack(spacing: 6) {
                         RoundedRectangle(cornerRadius: 1)
-                            .stroke(KlarColors.secondary, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                            .stroke(KlarColors.dropZone, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                             .frame(width: 16, height: 2)
                         Text("Last 6 Months Average")
                             .font(KlarFonts.label(10))
@@ -218,13 +214,13 @@ struct SpendingTrendsView: View {
                     x: .value("Day", entry.day),
                     y: .value("Amount", entry.amount)
                 )
-                .foregroundStyle(.white.opacity(0.05))
+                .foregroundStyle(KlarColors.accent.opacity(0.08))
 
                 LineMark(
                     x: .value("Day", entry.day),
                     y: .value("Amount", entry.amount)
                 )
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.accent)
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
             }
 
@@ -234,7 +230,7 @@ struct SpendingTrendsView: View {
                     y: .value("Amount", entry.amount),
                     series: .value("Series", "Average")
                 )
-                .foregroundStyle(KlarColors.secondary)
+                .foregroundStyle(KlarColors.dropZone)
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
             }
         }
@@ -266,7 +262,7 @@ struct SpendingTrendsView: View {
                     x: .value("Day", entry.day),
                     y: .value("Amount", entry.amount)
                 )
-                .foregroundStyle(.white.opacity(0.6))
+                .foregroundStyle(KlarColors.primary.opacity(0.6))
                 .cornerRadius(4)
             }
         }
@@ -306,7 +302,7 @@ struct SpendingTrendsView: View {
             Text(title)
                 .font(KlarFonts.label(12))
                 .tracking(0.5)
-                .foregroundStyle(selectedTab == index ? .white : KlarColors.secondary)
+                .foregroundStyle(selectedTab == index ? KlarColors.primary : KlarColors.secondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .background(selectedTab == index ? KlarColors.surface : .clear)

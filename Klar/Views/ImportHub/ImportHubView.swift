@@ -23,21 +23,27 @@ struct ImportHubView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 // Header
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("IMPORT HUB")
-                        .font(KlarFonts.display(28))
-                        .foregroundStyle(.white)
+                VStack(spacing: 8) {
+                    HStack(spacing: 0) {
+                        Text("IMPORT ")
+                            .font(KlarFonts.display(32))
+                            .foregroundStyle(KlarColors.primary)
+                        Text("HUB")
+                            .font(.system(size: 32, weight: .black, design: .serif))
+                            .italic()
+                            .foregroundStyle(KlarColors.secondary)
+                    }
 
-                    Text("Upload Files")
-                        .font(KlarFonts.heading(18))
-                        .foregroundStyle(KlarColors.secondary)
+                    Text("UPLOAD FILES")
+                        .font(KlarFonts.heading(20))
+                        .foregroundStyle(KlarColors.primary)
 
-                    Text("Upload a CSV, PDF, or photo of receipt. Parsed transactions go to your inbox for review before being added.")
+                    Text("Upload a csv, pdf, or photo of receipt.\nParsed transactions go to your inbox for\nreview before being added.")
                         .font(KlarFonts.body(14))
                         .foregroundStyle(KlarColors.secondary)
-                        .padding(.top, 4)
+                        .multilineTextAlignment(.center)
                 }
-                .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity)
                 .padding(.top, 16)
 
                 // Drop Zone
@@ -45,26 +51,27 @@ struct ImportHubView: View {
                     .padding(.horizontal, 20)
 
                 // Account Name Field
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "creditcard")
-                            .foregroundStyle(KlarColors.secondary)
-                        Text("ACCOUNT NAME")
-                            .font(KlarFonts.label(12))
-                            .tracking(1)
+                KlarCard(dashedBorder: true) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "creditcard.fill")
+                                .foregroundStyle(KlarColors.secondary)
+                            Text("ACCOUNT NAME")
+                                .font(KlarFonts.heading(16))
+                                .foregroundStyle(KlarColors.primary)
+                        }
+
+                        TextField("e.g. HDFC Savings, ICICI Credit Card", text: $accountName)
+                            .font(KlarFonts.body(14))
+                            .foregroundStyle(KlarColors.primary)
+                            .padding(14)
+                            .background(KlarColors.surfaceElevated)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                        Text("Labels where each transaction came from.")
+                            .font(KlarFonts.label(11))
                             .foregroundStyle(KlarColors.secondary)
                     }
-
-                    TextField("e.g. HDFC Savings, ICICI Credit Card", text: $accountName)
-                        .font(KlarFonts.body(14))
-                        .foregroundStyle(.white)
-                        .padding(14)
-                        .background(KlarColors.surfaceElevated)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                    Text("Labels where each transaction came from.")
-                        .font(KlarFonts.label(11))
-                        .foregroundStyle(KlarColors.secondary)
                 }
                 .padding(.horizontal, 20)
 
@@ -121,12 +128,12 @@ struct ImportHubView: View {
             VStack(spacing: 14) {
                 Image(systemName: "arrow.up.doc")
                     .font(.system(size: 36))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
 
                 Text("DROP YOUR FILES HERE OR BROWSE")
                     .font(KlarFonts.label(13))
                     .tracking(1)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
 
                 Text("MAX FILE SIZE UPTO 100MB")
                     .font(KlarFonts.label(10))
@@ -137,14 +144,14 @@ struct ImportHubView: View {
             .padding(.vertical, 48)
             .background(
                 RoundedRectangle(cornerRadius: 16)
+                    .fill(isDragTargeted ? KlarColors.dropZone.opacity(0.6) : KlarColors.dropZone.opacity(0.35))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
                     .stroke(
-                        isDragTargeted ? Color.white : KlarColors.inactive,
+                        KlarColors.dashedBorder,
                         style: StrokeStyle(lineWidth: 2, dash: [6, 4])
                     )
-            )
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(isDragTargeted ? KlarColors.surfaceElevated : .clear)
             )
         }
         .dropDestination(for: Data.self) { items, location in
@@ -158,7 +165,7 @@ struct ImportHubView: View {
     private func uploadRow(_ entry: UploadEntry) -> some View {
         HStack(spacing: 14) {
             RoundedRectangle(cornerRadius: 8)
-                .fill(entry.fileType == "PDF" ? Color.red.opacity(0.15) : KlarColors.positive.opacity(0.15))
+                .fill(entry.fileType == "PDF" ? Color.red.opacity(0.1) : KlarColors.positive.opacity(0.1))
                 .frame(width: 44, height: 44)
                 .overlay(
                     Text(entry.fileType)
@@ -169,7 +176,7 @@ struct ImportHubView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.name)
                     .font(KlarFonts.body(14))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
                     .lineLimit(1)
 
                 Text(entry.statusMessage)
@@ -192,6 +199,10 @@ struct ImportHubView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(KlarColors.surface)
+        .overlay(
+            Rectangle()
+                .stroke(KlarColors.dashedBorder, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+        )
     }
 
     // MARK: - Pending Review Section
@@ -206,10 +217,10 @@ struct ImportHubView: View {
                     Text("ADD ALL")
                         .font(KlarFonts.label(12))
                         .fontWeight(.bold)
-                        .foregroundStyle(.black)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(.white)
+                        .background(KlarColors.primary)
                         .clipShape(Capsule())
                 }
             }
@@ -228,7 +239,7 @@ struct ImportHubView: View {
 
         return HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 8)
-                .fill(catColor.opacity(0.2))
+                .fill(catColor.opacity(0.15))
                 .frame(width: 36, height: 36)
                 .overlay(
                     Image(systemName: categorySymbol(for: category))
@@ -240,7 +251,7 @@ struct ImportHubView: View {
                 Text(merchant.uppercased())
                     .font(KlarFonts.label(13))
                     .fontWeight(.bold)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
 
                 HStack(spacing: 6) {
                     CategoryPill(name: category, color: catColor)

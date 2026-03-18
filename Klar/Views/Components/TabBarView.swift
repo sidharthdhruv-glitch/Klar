@@ -19,8 +19,8 @@ enum KlarTab: Int, CaseIterable {
 
     var icon: String {
         switch self {
-        case .pulse: return "waveform"
-        case .importHub: return "square.and.arrow.down"
+        case .pulse: return "house"
+        case .importHub: return "icloud.and.arrow.down"
         case .ledger: return "list.bullet.rectangle"
         case .visualizer: return "chart.bar.xaxis"
         case .settings: return "gearshape"
@@ -30,27 +30,21 @@ enum KlarTab: Int, CaseIterable {
 
 struct KlarTabBar: View {
     @Binding var selectedTab: KlarTab
-    @Namespace private var tabAnimation
 
     var body: some View {
-        HStack {
+        HStack(spacing: 0) {
             ForEach(KlarTab.allCases, id: \.rawValue) { tab in
-                Spacer()
                 tabButton(tab)
-                Spacer()
             }
         }
-        .padding(.top, 12)
-        .padding(.bottom, 28)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 12)
         .background(
-            KlarColors.tabBarBg
-                .overlay(
-                    Rectangle()
-                        .frame(height: 0.5)
-                        .foregroundStyle(KlarColors.tabBarBorder),
-                    alignment: .top
-                )
+            Capsule()
+                .fill(KlarColors.tabBarBg)
         )
+        .padding(.horizontal, 24)
+        .padding(.bottom, 20)
     }
 
     @ViewBuilder
@@ -61,15 +55,11 @@ struct KlarTabBar: View {
                 selectedTab = tab
             }
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 20))
-                    .scaleEffect(isActive ? 1.15 : 1.0)
-                Text(tab.title)
-                    .font(.system(size: 10, weight: .medium))
-            }
-            .foregroundStyle(isActive ? .white : KlarColors.inactive)
-            .opacity(isActive ? 1.0 : 0.6)
+            Image(systemName: tab.icon)
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(isActive ? KlarColors.accent : .white.opacity(0.5))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
         }
         .buttonStyle(.plain)
         .sensoryFeedback(.selection, trigger: selectedTab)

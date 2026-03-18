@@ -19,7 +19,7 @@ struct ConflictResolverView: View {
             HStack {
                 Text("RESOLVE CONFLICTS")
                     .font(KlarFonts.heading(18))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
                 Spacer()
                 Text("\(currentIndex + 1) of \(conflicts.count)")
                     .font(KlarFonts.label(13))
@@ -52,7 +52,7 @@ struct ConflictResolverView: View {
                         .foregroundStyle(KlarColors.positive)
                     Text("All conflicts resolved!")
                         .font(KlarFonts.heading(18))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(KlarColors.primary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -70,7 +70,7 @@ struct ConflictResolverView: View {
                     } label: {
                         Text("Keep New")
                             .font(KlarFonts.label(13))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(KlarColors.primary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
                             .background(KlarColors.surfaceElevated)
@@ -100,7 +100,7 @@ struct ConflictResolverView: View {
                     } label: {
                         Text("Keep Both")
                             .font(KlarFonts.label(13))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(KlarColors.primary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
                             .background(KlarColors.surfaceElevated)
@@ -147,7 +147,7 @@ struct ConflictResolverView: View {
 
             Text(merchant.uppercased())
                 .font(KlarFonts.heading(16))
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
 
             Text(row.type == .income
                 ? CurrencyHelper.formatSigned(row.amount)
@@ -177,7 +177,7 @@ struct ConflictResolverView: View {
 
             Text(txn.merchant.uppercased())
                 .font(KlarFonts.heading(16))
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
 
             Text(CurrencyHelper.formatSigned(txn.amount))
                 .font(KlarFonts.display(22))

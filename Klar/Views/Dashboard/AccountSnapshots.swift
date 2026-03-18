@@ -15,7 +15,7 @@ struct AccountSnapshotCard: View {
             Text(CurrencyHelper.format(account.balance))
                 .font(KlarFonts.heading(18))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
 
             Chart {
                 ForEach(Array(weeklyData.enumerated()), id: \.offset) { index, value in
@@ -23,14 +23,14 @@ struct AccountSnapshotCard: View {
                         x: .value("Day", index),
                         y: .value("Amount", value)
                     )
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(KlarColors.positive)
                     .lineStyle(StrokeStyle(lineWidth: 1.5))
 
                     AreaMark(
                         x: .value("Day", index),
                         y: .value("Amount", value)
                     )
-                    .foregroundStyle(.white.opacity(0.05))
+                    .foregroundStyle(KlarColors.positive.opacity(0.1))
                 }
             }
             .chartXAxis(.hidden)

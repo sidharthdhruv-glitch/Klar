@@ -8,41 +8,46 @@ struct BurnRateView: View {
 
     private var barColor: Color {
         if rate < 0.5 { return KlarColors.positive }
-        if rate < 0.75 { return .orange }
+        if rate < 0.75 { return KlarColors.searchHighlight }
         return KlarColors.negative
     }
 
     var body: some View {
-        KlarCard {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    SectionHeader(title: "BURN RATE")
-                    Spacer()
-                    Text(String(format: "%.1f%%", rate * 100))
-                        .font(KlarFonts.heading(18))
-                        .monospacedDigit()
-                        .foregroundStyle(barColor)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "BURN RATE")
 
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(KlarColors.barTrack)
-                            .frame(height: 8)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(KlarColors.barTrack)
+                        .frame(height: 28)
 
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(barColor)
-                            .frame(width: geo.size.width * min(barProgress, 1.0), height: 8)
+                    HStack(spacing: 0) {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(
+                                LinearGradient(
+                                    colors: [KlarColors.positive, KlarColors.searchHighlight],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: geo.size.width * min(barProgress, 1.0), height: 28)
                     }
-                }
-                .frame(height: 8)
 
-                Text("\(CurrencyHelper.format(spent)) / \(CurrencyHelper.format(budget))")
-                    .font(KlarFonts.label(12))
-                    .monospacedDigit()
-                    .foregroundStyle(KlarColors.secondary)
+                    Text("\(CurrencyHelper.format(spent)) / \(CurrencyHelper.format(budget))")
+                        .font(KlarFonts.label(12))
+                        .fontWeight(.bold)
+                        .monospacedDigit()
+                        .foregroundStyle(KlarColors.primary)
+                        .padding(.leading, 12)
+                }
             }
+            .frame(height: 28)
         }
+        .padding(16)
+        .background(KlarColors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
         .onAppear {
             withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
                 barProgress = CGFloat(rate)

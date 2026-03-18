@@ -8,7 +8,7 @@ struct SubscriptionAuditView: View {
     @State private var showAddSubscription = false
 
     var body: some View {
-        KlarCard {
+        KlarCard(dashedBorder: true) {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     SectionHeader(title: "SUBSCRIPTION AUDIT")
@@ -17,7 +17,7 @@ struct SubscriptionAuditView: View {
                         showAddSubscription = true
                     } label: {
                         Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(.white)
+                            .foregroundStyle(KlarColors.primary)
                             .font(.system(size: 18))
                     }
                 }
@@ -40,19 +40,11 @@ struct SubscriptionAuditView: View {
                             HStack(spacing: 12) {
                                 Text(String(format: "%02d.", index + 1))
                                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(KlarColors.secondary)
+                                    .foregroundStyle(KlarColors.primary)
 
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(sub.name.uppercased())
-                                        .font(KlarFonts.label(13))
-                                        .fontWeight(.bold)
-                                        .foregroundStyle(.white)
-
-                                    CategoryPill(
-                                        name: sub.category,
-                                        color: KlarColors.categoryColor(for: sub.category)
-                                    )
-                                }
+                                Text(sub.name.uppercased())
+                                    .font(KlarFonts.heading(14))
+                                    .foregroundStyle(KlarColors.primary)
 
                                 Spacer()
 
@@ -64,31 +56,9 @@ struct SubscriptionAuditView: View {
 
                                     Text("Next bill: \(formatNextBill(sub.nextBillDate))")
                                         .font(KlarFonts.label(10))
-                                        .foregroundStyle(KlarColors.secondary)
+                                        .foregroundStyle(KlarColors.positive)
                                 }
                             }
-
-                            HStack {
-                                Text("Cancel Reminder")
-                                    .font(KlarFonts.label(11))
-                                    .foregroundStyle(KlarColors.secondary)
-                                Spacer()
-                                Toggle("", isOn: Binding(
-                                    get: { sub.cancelReminderEnabled },
-                                    set: { newVal in
-                                        sub.cancelReminderEnabled = newVal
-                                        try? modelContext.save()
-                                        if newVal {
-                                            scheduleReminder(for: sub)
-                                        } else {
-                                            cancelReminder(for: sub)
-                                        }
-                                    }
-                                ))
-                                .tint(KlarColors.positive)
-                                .labelsHidden()
-                            }
-                            .padding(.top, 8)
 
                             if index < subscriptions.count - 1 {
                                 Divider()
@@ -163,7 +133,7 @@ struct AddSubscriptionSheet: View {
         VStack(spacing: 20) {
             Text("ADD SUBSCRIPTION")
                 .font(KlarFonts.heading(18))
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
                 .padding(.top, 24)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -173,7 +143,7 @@ struct AddSubscriptionSheet: View {
                     .foregroundStyle(KlarColors.secondary)
                 TextField("e.g. Netflix, Spotify", text: $name)
                     .font(KlarFonts.body(14))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
                     .padding(14)
                     .background(KlarColors.surfaceElevated)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -184,9 +154,9 @@ struct AddSubscriptionSheet: View {
                     .font(KlarFonts.label(11))
                     .tracking(1)
                     .foregroundStyle(KlarColors.secondary)
-                TextField("₹499", text: $amount)
+                TextField("499", text: $amount)
                     .font(KlarFonts.body(14))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
                     .keyboardType(.decimalPad)
                     .padding(14)
                     .background(KlarColors.surfaceElevated)
@@ -209,7 +179,7 @@ struct AddSubscriptionSheet: View {
 
             DatePicker("Next Bill Date", selection: $nextBillDate, displayedComponents: .date)
                 .font(KlarFonts.body(14))
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("CATEGORY")
@@ -228,7 +198,7 @@ struct AddSubscriptionSheet: View {
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 8)
                                 .frame(maxWidth: .infinity)
-                                .background(selectedCategory == cat ? KlarColors.categoryColor(for: cat).opacity(0.3) : KlarColors.surfaceElevated)
+                                .background(selectedCategory == cat ? KlarColors.categoryColor(for: cat) : KlarColors.surfaceElevated)
                                 .clipShape(Capsule())
                         }
                     }
@@ -253,10 +223,10 @@ struct AddSubscriptionSheet: View {
                 Text("Add Subscription")
                     .font(KlarFonts.label(14))
                     .fontWeight(.bold)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(.white)
+                    .background(KlarColors.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .padding(.bottom, 32)

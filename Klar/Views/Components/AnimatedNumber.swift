@@ -11,7 +11,7 @@ struct AnimatedNumber: View {
     init(
         value: Double,
         font: Font = KlarFonts.display(),
-        color: Color = .white,
+        color: Color = KlarColors.primary,
         format: @escaping (Double) -> String = { CurrencyHelper.format($0) }
     ) {
         self.value = value

@@ -5,9 +5,8 @@ import Charts
 struct VisualizerView: View {
     @Query(sort: \Transaction.date, order: .reverse) private var transactions: [Transaction]
     @Query private var subscriptions: [Subscription]
-    @State private var selectedMonthOffset: Int = 0 // 0 = current month, -1 = last month, etc.
+    @State private var selectedMonthOffset: Int = 0
 
-    /// Available months that have transaction data, most recent first
     private var availableMonths: [(month: Int, year: Int, label: String)] {
         let cal = Calendar.current
         var seen: Set<String> = []
@@ -30,10 +29,8 @@ struct VisualizerView: View {
             }
         }
 
-        // Sort by most recent first
         result.sort { ($0.year, $0.month) > ($1.year, $1.month) }
 
-        // Always include current month even if no data
         let nowM = cal.component(.month, from: Date())
         let nowY = cal.component(.year, from: Date())
         if !result.contains(where: { $0.month == nowM && $0.year == nowY }) {
@@ -65,6 +62,19 @@ struct VisualizerView: View {
         return months[index].label
     }
 
+    private var selectedMonthShortName: String {
+        let months = availableMonths
+        let index = min(max(selectedMonthOffset, 0), months.count - 1)
+        guard !months.isEmpty else { return "" }
+        let f = DateFormatter()
+        f.dateFormat = "MMMM"
+        var comps = DateComponents()
+        comps.year = months[index].year
+        comps.month = months[index].month
+        comps.day = 1
+        return Calendar.current.date(from: comps).map { f.string(from: $0).uppercased() } ?? ""
+    }
+
     private var selectedMonthTransactions: [Transaction] {
         let cal = Calendar.current
         let (month, year) = selectedMonth
@@ -89,19 +99,23 @@ struct VisualizerView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("THE VISUALIZER")
+                // Header
+                HStack(spacing: 0) {
+                    Text("THE ")
+                        .font(.system(size: 28, weight: .bold, design: .serif))
+                        .italic()
+                        .foregroundStyle(KlarColors.secondary)
+                    Text("VISUALIZER")
                         .font(KlarFonts.display(28))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(KlarColors.primary)
                 }
-                .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity)
                 .padding(.top, 16)
 
                 if transactions.isEmpty {
                     emptyState
                 } else {
-                    // Auto-select first month with data on initial load
-                    let _ = autoSelectMonth()
+
                     // Month Selector
                     if availableMonths.count > 1 {
                         HStack {
@@ -112,14 +126,14 @@ struct VisualizerView: View {
                             } label: {
                                 Image(systemName: "chevron.left")
                                     .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(selectedMonthOffset < availableMonths.count - 1 ? .white : KlarColors.inactive)
+                                    .foregroundStyle(selectedMonthOffset < availableMonths.count - 1 ? KlarColors.primary : KlarColors.inactive)
                             }
                             .disabled(selectedMonthOffset >= availableMonths.count - 1)
 
                             Spacer()
                             Text(selectedMonthName)
                                 .font(KlarFonts.heading(16))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(KlarColors.primary)
                             Spacer()
 
                             Button {
@@ -129,7 +143,7 @@ struct VisualizerView: View {
                             } label: {
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(selectedMonthOffset > 0 ? .white : KlarColors.inactive)
+                                    .foregroundStyle(selectedMonthOffset > 0 ? KlarColors.primary : KlarColors.inactive)
                             }
                             .disabled(selectedMonthOffset <= 0)
                         }
@@ -137,11 +151,11 @@ struct VisualizerView: View {
                     }
 
                     // Cash Flow Sankey
-                    KlarCard {
+                    KlarCard(dashedBorder: true) {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("CASH FLOW (\(selectedMonthName))")
+                            Text("CASH FLOW (\(selectedMonthShortName))")
                                 .font(KlarFonts.heading(18))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(KlarColors.primary)
 
                             if totalIncome > 0 && !categorySpend.isEmpty {
                                 SankeyDiagram(
@@ -152,7 +166,6 @@ struct VisualizerView: View {
                                 )
                                 .frame(height: 240)
                             } else if !categorySpend.isEmpty {
-                                // Show spending breakdown even without income
                                 VStack(alignment: .leading, spacing: 8) {
                                     ForEach(categorySpend.prefix(6), id: \.0) { name, value in
                                         HStack {
@@ -161,7 +174,7 @@ struct VisualizerView: View {
                                                 .frame(width: 8, height: 8)
                                             Text(name)
                                                 .font(KlarFonts.body(13))
-                                                .foregroundStyle(.white)
+                                                .foregroundStyle(KlarColors.primary)
                                             Spacer()
                                             Text(CurrencyHelper.format(-value))
                                                 .font(KlarFonts.label(13))
@@ -170,6 +183,13 @@ struct VisualizerView: View {
                                         }
                                     }
                                 }
+                            }
+
+                            if totalIncome > 0 {
+                                Text("TOTAL INCOME (+\(CurrencyHelper.format(totalIncome)))")
+                                    .font(KlarFonts.label(12))
+                                    .foregroundStyle(KlarColors.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
                             }
 
                             legendRow
@@ -194,6 +214,9 @@ struct VisualizerView: View {
             }
         }
         .background(KlarColors.background)
+        .onAppear {
+            autoSelectMonth()
+        }
     }
 
     private var emptyState: some View {
@@ -214,10 +237,8 @@ struct VisualizerView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Auto-select the first month that has transaction data (if current month is empty)
     private func autoSelectMonth() {
         if selectedMonthOffset == 0 && selectedMonthTransactions.isEmpty && availableMonths.count > 1 {
-            // Find first month with data
             let cal = Calendar.current
             for (index, monthInfo) in availableMonths.enumerated() {
                 let hasData = transactions.contains {
@@ -245,7 +266,7 @@ struct VisualizerView: View {
                         .fill(KlarColors.categoryColor(for: name))
                         .frame(width: 6, height: 6)
                     Text(name.uppercased())
-                        .font(.system(size: 8, weight: .medium))
+                        .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(KlarColors.secondary)
                         .lineLimit(1)
                 }

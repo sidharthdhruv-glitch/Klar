@@ -1,27 +1,32 @@
 import SwiftUI
+import UIKit
 
 enum KlarColors {
-    static let background = Color(hex: "#0D0D0D")
-    static let surface = Color(hex: "#1A1A1A")
-    static let surfaceElevated = Color(hex: "#222222")
-    static let primary = Color.white
-    static let secondary = Color(hex: "#888888")
-    static let positive = Color(hex: "#4ADE80")
-    static let negative = Color(hex: "#F87171")
-    static let tabBarBg = Color(hex: "#111111")
-    static let tabBarBorder = Color(hex: "#2A2A2A")
-    static let inactive = Color(hex: "#444444")
-    static let barTrack = Color(hex: "#2A2A2A")
+    static let background = Color(hex: "#F5F0E8")
+    static let surface = Color.white
+    static let surfaceElevated = Color(hex: "#EDE8E0")
+    static let primary = Color(hex: "#1A1A1A")
+    static let secondary = Color(hex: "#7A7A7A")
+    static let positive = Color(hex: "#4A8C5C")
+    static let negative = Color(hex: "#C0392B")
+    static let tabBarBg = Color(hex: "#2A2A2A")
+    static let tabBarBorder = Color(hex: "#3A3A3A")
+    static let inactive = Color(hex: "#AAAAAA")
+    static let barTrack = Color(hex: "#E0DBD3")
+    static let accent = Color(hex: "#D64B8A")
+    static let dropZone = Color(hex: "#C8D4E8")
+    static let searchHighlight = Color(hex: "#E8C840")
+    static let dashedBorder = Color(hex: "#C0B8A8")
 
-    static let shopping = Color(hex: "#A78BFA")
-    static let entertainment = Color(hex: "#FB923C")
-    static let health = Color(hex: "#34D399")
-    static let finance = Color(hex: "#60A5FA")
-    static let transport = Color(hex: "#FBBF24")
-    static let utilities = Color(hex: "#F472B6")
-    static let misc = Color(hex: "#94A3B8")
-    static let food = Color(hex: "#F97316")
-    static let income = Color(hex: "#4ADE80")
+    static let shopping = Color(hex: "#E8D44D")
+    static let entertainment = Color(hex: "#E8A060")
+    static let health = Color(hex: "#6BBF8A")
+    static let finance = Color(hex: "#8E9FD0")
+    static let transport = Color(hex: "#D4CC60")
+    static let utilities = Color(hex: "#E090A8")
+    static let misc = Color(hex: "#D4C870")
+    static let food = Color(hex: "#A0B860")
+    static let income = Color(hex: "#4A8C5C")
 
     static func categoryColor(for name: String) -> Color {
         switch name.lowercased() {
@@ -76,11 +81,11 @@ extension Color {
 
 enum KlarFonts {
     static func display(_ size: CGFloat = 34) -> Font {
-        .system(size: size, weight: .bold, design: .default)
+        .system(size: size, weight: .black, design: .rounded)
     }
 
     static func heading(_ size: CGFloat = 22) -> Font {
-        .system(size: size, weight: .semibold, design: .default)
+        .system(size: size, weight: .bold, design: .rounded)
     }
 
     static func body(_ size: CGFloat = 15) -> Font {
@@ -88,18 +93,20 @@ enum KlarFonts {
     }
 
     static func label(_ size: CGFloat = 12) -> Font {
-        .system(size: size, weight: .medium, design: .default)
+        .system(size: size, weight: .semibold, design: .default)
     }
 
     static func sectionHeader() -> Font {
-        .system(size: 11, weight: .semibold, design: .default)
+        .system(size: 13, weight: .black, design: .rounded)
     }
 }
 
 struct KlarCard<Content: View>: View {
     let content: Content
+    var dashedBorder: Bool = false
 
-    init(@ViewBuilder content: () -> Content) {
+    init(dashedBorder: Bool = false, @ViewBuilder content: () -> Content) {
+        self.dashedBorder = dashedBorder
         self.content = content()
     }
 
@@ -107,8 +114,15 @@ struct KlarCard<Content: View>: View {
         content
             .padding(16)
             .background(KlarColors.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .shadow(color: .black.opacity(0.3), radius: 12)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(
+                        dashedBorder ? KlarColors.dashedBorder : .clear,
+                        style: StrokeStyle(lineWidth: dashedBorder ? 1.5 : 0, dash: dashedBorder ? [6, 4] : [])
+                    )
+            )
+            .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
     }
 }
 
@@ -118,8 +132,8 @@ struct SectionHeader: View {
     var body: some View {
         Text(title)
             .font(KlarFonts.sectionHeader())
-            .tracking(2)
-            .foregroundStyle(KlarColors.secondary)
+            .tracking(1.5)
+            .foregroundStyle(KlarColors.primary)
             .textCase(.uppercase)
     }
 }
@@ -130,7 +144,7 @@ struct CategoryPill: View {
 
     var body: some View {
         Text(name.uppercased())
-            .font(.system(size: 9, weight: .bold))
+            .font(.system(size: 10, weight: .bold))
             .tracking(0.5)
             .foregroundStyle(color)
             .padding(.horizontal, 8)
@@ -157,7 +171,7 @@ struct StatusBadge: View {
             .foregroundStyle(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(color.opacity(0.15))
+            .background(color.opacity(0.12))
             .clipShape(Capsule())
     }
 }

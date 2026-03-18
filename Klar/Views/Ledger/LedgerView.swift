@@ -33,62 +33,64 @@ struct LedgerView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            VStack(alignment: .leading, spacing: 12) {
-                Text("THE LEDGER")
-                    .font(KlarFonts.display(28))
-                    .foregroundStyle(.white)
+            VStack(spacing: 12) {
+                HStack(spacing: 0) {
+                    Text("THE ")
+                        .font(.system(size: 28, weight: .bold, design: .serif))
+                        .italic()
+                        .foregroundStyle(KlarColors.secondary)
+                    Text("LEDGER")
+                        .font(KlarFonts.display(28))
+                        .foregroundStyle(KlarColors.primary)
+                }
+                .padding(.top, 16)
 
                 // Smart Search
-                HStack(spacing: 10) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "sparkle")
-                            .foregroundStyle(KlarColors.positive)
-                            .font(.system(size: 14))
+                KlarCard(dashedBorder: true) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sparkles")
+                                .foregroundStyle(KlarColors.searchHighlight)
+                                .font(.system(size: 14))
+                            Text("SMART SEARCH")
+                                .font(KlarFonts.heading(16))
+                                .foregroundStyle(KlarColors.primary)
+                        }
 
-                        TextField("How much did I spend at Amazon in December?", text: $searchText)
-                            .font(KlarFonts.body(14))
-                            .foregroundStyle(.white)
-                            .onSubmit {
-                                performSmartSearch()
-                            }
-                            .onChange(of: searchText) { _, newValue in
-                                if newValue.isEmpty {
+                        HStack {
+                            TextField("\"How much did I spend at Amazon in December?\"", text: $searchText)
+                                .font(KlarFonts.body(13))
+                                .foregroundStyle(KlarColors.primary)
+                                .onSubmit {
+                                    performSmartSearch()
+                                }
+                                .onChange(of: searchText) { _, newValue in
+                                    if newValue.isEmpty {
+                                        filteredResults = nil
+                                    }
+                                }
+
+                            if !searchText.isEmpty {
+                                Button {
+                                    searchText = ""
                                     filteredResults = nil
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(KlarColors.secondary)
                                 }
                             }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(KlarColors.surfaceElevated)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
 
-                    if !searchText.isEmpty {
-                        Button {
-                            searchText = ""
-                            filteredResults = nil
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
+                            Image(systemName: "slider.horizontal.3")
                                 .foregroundStyle(KlarColors.secondary)
+                                .font(.system(size: 16))
                         }
+                        .padding(12)
+                        .background(KlarColors.surfaceElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                 }
-
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 9))
-                    Text("SMART SEARCH")
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(1)
-                }
-                .foregroundStyle(KlarColors.positive)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(KlarColors.positive.opacity(0.1))
-                .clipShape(Capsule())
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
 
             if transactions.isEmpty {
                 Spacer()
@@ -110,29 +112,41 @@ struct LedgerView: View {
                     LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
                         ForEach(Array(groupedTransactions.enumerated()), id: \.element.0) { sectionIndex, group in
                             Section {
-                                ForEach(Array(group.1.enumerated()), id: \.element.id) { rowIndex, transaction in
-                                    let globalIndex = globalIndexFor(sectionIndex: sectionIndex, rowIndex: rowIndex)
-                                    TransactionRow(
-                                        transaction: transaction,
-                                        index: globalIndex,
-                                        isSelectMode: isSelectMode,
-                                        isSelected: selectedTransactions.contains(transaction.id)
-                                    )
-                                    .onTapGesture {
-                                        if isSelectMode {
-                                            toggleSelection(transaction.id)
+                                KlarCard(dashedBorder: true) {
+                                    VStack(spacing: 0) {
+                                        ForEach(Array(group.1.enumerated()), id: \.element.id) { rowIndex, transaction in
+                                            let globalIndex = globalIndexFor(sectionIndex: sectionIndex, rowIndex: rowIndex)
+
+                                            TransactionRow(
+                                                transaction: transaction,
+                                                index: globalIndex,
+                                                isSelectMode: isSelectMode,
+                                                isSelected: selectedTransactions.contains(transaction.id)
+                                            )
+                                            .onTapGesture {
+                                                if isSelectMode {
+                                                    toggleSelection(transaction.id)
+                                                }
+                                            }
+                                            .onLongPressGesture {
+                                                withAnimation {
+                                                    isSelectMode = true
+                                                    selectedTransactions.insert(transaction.id)
+                                                }
+                                                let impact = UIImpactFeedbackGenerator(style: .medium)
+                                                impact.impactOccurred()
+                                            }
+
+                                            if rowIndex < group.1.count - 1 {
+                                                Rectangle()
+                                                    .stroke(KlarColors.dashedBorder, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                                                    .frame(height: 1)
+                                                    .padding(.horizontal, 4)
+                                            }
                                         }
                                     }
-                                    .onLongPressGesture {
-                                        withAnimation {
-                                            isSelectMode = true
-                                            selectedTransactions.insert(transaction.id)
-                                        }
-                                        let impact = UIImpactFeedbackGenerator(style: .medium)
-                                        impact.impactOccurred()
-                                    }
-                                    .transition(.move(edge: .bottom).combined(with: .opacity))
                                 }
+                                .padding(.horizontal, 20)
                             } header: {
                                 dateHeader(group.0, isToday: isToday(group.1.first?.date))
                             }
@@ -179,12 +193,11 @@ struct LedgerView: View {
                 Text(dateString.uppercased())
             }
         }
-        .font(KlarFonts.label(11))
-        .tracking(1.5)
-        .foregroundStyle(KlarColors.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .font(KlarFonts.heading(16))
+        .foregroundStyle(KlarColors.primary)
+        .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
         .background(KlarColors.background)
     }
 
@@ -206,7 +219,6 @@ struct LedgerView: View {
             return
         }
 
-        // Parse for month names
         let months = ["january": 1, "february": 2, "march": 3, "april": 4,
                       "may": 5, "june": 6, "july": 7, "august": 8,
                       "september": 9, "october": 10, "november": 11, "december": 12]
@@ -247,16 +259,16 @@ struct LedgerView: View {
         HStack {
             Text("\(selectedTransactions.count) Selected")
                 .font(KlarFonts.label(14))
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
             Spacer()
             Button("Change Category") {
                 showCategoryPicker = true
             }
             .font(KlarFonts.label(13))
-            .foregroundStyle(.black)
+            .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(.white)
+            .background(KlarColors.primary)
             .clipShape(Capsule())
 
             Button {
@@ -285,57 +297,45 @@ struct TransactionRow: View {
         HStack(spacing: 12) {
             if isSelectMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? .white : KlarColors.inactive)
+                    .foregroundStyle(isSelected ? KlarColors.accent : KlarColors.inactive)
                     .font(.system(size: 20))
             }
 
-            Text(String(format: "%02d", index))
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundStyle(KlarColors.secondary)
-
-            let catColor = KlarColors.categoryColor(for: transaction.category)
-            let catSymbol = categorySymbol(for: transaction.category)
-            RoundedRectangle(cornerRadius: 8)
-                .fill(catColor.opacity(0.2))
-                .frame(width: 36, height: 36)
-                .overlay(
-                    Image(systemName: catSymbol)
-                        .font(.system(size: 14))
-                        .foregroundStyle(catColor)
-                )
-
+            // Index + Merchant
             VStack(alignment: .leading, spacing: 4) {
-                Text(transaction.merchant.uppercased())
-                    .font(KlarFonts.label(13))
-                    .fontWeight(.bold)
-                    .foregroundStyle(.white)
-
                 HStack(spacing: 6) {
-                    CategoryPill(name: transaction.category, color: catColor)
-                    if let notes = transaction.notes {
-                        Text(notes.uppercased())
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(KlarColors.secondary)
-                            .lineLimit(1)
-                    }
+                    Text(String(format: "%02d.", index))
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundStyle(KlarColors.primary)
+                    Text(transaction.merchant.uppercased())
+                        .font(KlarFonts.heading(16))
+                        .foregroundStyle(KlarColors.primary)
                 }
+
+                let catColor = KlarColors.categoryColor(for: transaction.category)
+                Text(transaction.category)
+                    .font(KlarFonts.label(12))
+                    .foregroundStyle(catColor)
             }
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(CurrencyHelper.formatSigned(transaction.amount))
-                    .font(KlarFonts.label(14))
-                    .fontWeight(.semibold)
-                    .monospacedDigit()
-                    .foregroundStyle(transaction.amount >= 0 ? KlarColors.positive : KlarColors.negative)
-
-                Text(transaction.account)
-                    .font(.system(size: 9, weight: .medium))
+            // Notes/description
+            if let notes = transaction.notes, !notes.isEmpty {
+                Text(notes.uppercased())
+                    .font(KlarFonts.label(10))
                     .foregroundStyle(KlarColors.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 90)
             }
+
+            // Amount
+            Text(CurrencyHelper.formatSigned(transaction.amount))
+                .font(KlarFonts.heading(16))
+                .monospacedDigit()
+                .foregroundStyle(transaction.amount >= 0 ? KlarColors.positive : KlarColors.negative)
         }
-        .padding(.horizontal, 20)
         .padding(.vertical, 10)
     }
 
@@ -370,7 +370,7 @@ struct CategoryPickerSheet: View {
         VStack(spacing: 20) {
             Text("CHANGE CATEGORY")
                 .font(KlarFonts.heading(18))
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
                 .padding(.top, 24)
 
             LazyVGrid(columns: [
@@ -384,7 +384,7 @@ struct CategoryPickerSheet: View {
                     } label: {
                         VStack(spacing: 8) {
                             RoundedRectangle(cornerRadius: 12)
-                                .fill(Color(hex: cat.colorHex).opacity(0.2))
+                                .fill(Color(hex: cat.colorHex).opacity(0.15))
                                 .frame(width: 56, height: 56)
                                 .overlay(
                                     Image(systemName: cat.sfSymbol)

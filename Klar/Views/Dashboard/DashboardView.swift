@@ -62,15 +62,36 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 // Header
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("HEY, \(userName.uppercased())")
-                        .font(KlarFonts.label(13))
-                        .tracking(1)
-                        .foregroundStyle(KlarColors.secondary)
+                HStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(KlarColors.accent.opacity(0.15))
+                        .frame(width: 44, height: 44)
+                        .overlay(
+                            Image(systemName: "creditcard.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(KlarColors.accent)
+                        )
 
-                    Text("your dashboard")
-                        .font(KlarFonts.display(28))
-                        .foregroundStyle(.white)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("HELLO, \(userName.uppercased())")
+                            .font(KlarFonts.display(22))
+                            .foregroundStyle(KlarColors.primary)
+                        Text("YOUR DASHBOARD")
+                            .font(KlarFonts.label(12))
+                            .tracking(1)
+                            .foregroundStyle(KlarColors.secondary)
+                    }
+
+                    Spacer()
+
+                    Circle()
+                        .stroke(KlarColors.searchHighlight, lineWidth: 2)
+                        .frame(width: 40, height: 40)
+                        .overlay(
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(KlarColors.searchHighlight)
+                        )
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
@@ -78,12 +99,40 @@ struct DashboardView: View {
                 if transactions.isEmpty {
                     emptyState
                 } else {
-                    // Burn Rate
-                    BurnRateView(
-                        rate: burnRate,
-                        spent: totalExpense,
-                        budget: monthlyBudget
-                    )
+                    // Total Balance Card
+                    KlarCard(dashedBorder: true) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("TOTAL BALANCE")
+                                    .font(KlarFonts.heading(20))
+                                    .foregroundStyle(KlarColors.primary)
+                                Spacer()
+                                HStack(spacing: 4) {
+                                    Text("ALL ACCOUNTS")
+                                        .font(KlarFonts.label(11))
+                                        .foregroundStyle(KlarColors.secondary)
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(KlarColors.secondary)
+                                }
+                            }
+
+                            HStack(spacing: 12) {
+                                AnimatedNumber(
+                                    value: totalBalance,
+                                    font: KlarFonts.display(28),
+                                    color: KlarColors.primary
+                                )
+
+                                if totalBalance != 0 {
+                                    let pct = totalIncome > 0 ? ((totalBalance) / totalIncome) * 100 : 0
+                                    Text(String(format: "%+.1f%%", pct))
+                                        .font(KlarFonts.label(13))
+                                        .foregroundStyle(KlarColors.positive)
+                                }
+                            }
+                        }
+                    }
                     .padding(.horizontal, 20)
 
                     // Net Flow
@@ -100,6 +149,14 @@ struct DashboardView: View {
                         CategoryBreakdownView(categorySpend: categorySpend)
                             .padding(.horizontal, 20)
                     }
+
+                    // Burn Rate
+                    BurnRateView(
+                        rate: burnRate,
+                        spent: totalExpense,
+                        budget: monthlyBudget
+                    )
+                    .padding(.horizontal, 20)
 
                     // Account Snapshots
                     if !accounts.isEmpty {

@@ -20,7 +20,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 24) {
                 Text("SETTINGS")
                     .font(KlarFonts.display(28))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
 
@@ -54,7 +54,7 @@ struct SettingsView: View {
 
     // MARK: - Rule Engine
     private var ruleEngineSection: some View {
-        KlarCard {
+        KlarCard(dashedBorder: true) {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "RULE ENGINE")
 
@@ -76,8 +76,8 @@ struct SettingsView: View {
                             Text("\"\(rule.keyword)\"")
                                 .font(KlarFonts.body(14))
                                 .fontWeight(.semibold)
-                                .foregroundStyle(.white)
-                            Text("→")
+                                .foregroundStyle(KlarColors.primary)
+                            Text("->")
                                 .foregroundStyle(KlarColors.secondary)
                             CategoryPill(
                                 name: rule.targetCategory,
@@ -105,7 +105,7 @@ struct SettingsView: View {
                         Text("Add Rule")
                     }
                     .font(KlarFonts.label(13))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
                 }
                 .padding(.top, 4)
             }
@@ -115,7 +115,7 @@ struct SettingsView: View {
 
     // MARK: - Custom Categories
     private var customCategoriesSection: some View {
-        KlarCard {
+        KlarCard(dashedBorder: true) {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "CATEGORIES")
 
@@ -129,7 +129,7 @@ struct SettingsView: View {
                     ForEach(displayCategories, id: \.name) { cat in
                         VStack(spacing: 6) {
                             RoundedRectangle(cornerRadius: 10)
-                                .fill(Color(hex: cat.colorHex).opacity(0.2))
+                                .fill(Color(hex: cat.colorHex).opacity(0.15))
                                 .frame(height: 44)
                                 .overlay(
                                     Image(systemName: cat.sfSymbol)
@@ -169,17 +169,17 @@ struct SettingsView: View {
 
     // MARK: - Budget
     private var budgetSection: some View {
-        KlarCard {
+        KlarCard(dashedBorder: true) {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "MONTHLY BUDGET")
 
                 HStack {
                     Text("₹")
                         .font(KlarFonts.heading(20))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(KlarColors.primary)
                     TextField("50000", value: $monthlyBudget, format: .number)
                         .font(KlarFonts.heading(20))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(KlarColors.primary)
                         .keyboardType(.numberPad)
                 }
                 .padding(14)
@@ -196,28 +196,28 @@ struct SettingsView: View {
 
     // MARK: - Export
     private var exportSection: some View {
-        KlarCard {
+        KlarCard(dashedBorder: true) {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "EXPORT SETTINGS")
 
                 Toggle(isOn: $includeChartsInExport) {
                     Text("Include charts in PDF export")
                         .font(KlarFonts.body(14))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(KlarColors.primary)
                 }
                 .tint(KlarColors.positive)
 
                 Toggle(isOn: $autoExportOnFirst) {
                     Text("Auto-export on 1st of month")
                         .font(KlarFonts.body(14))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(KlarColors.primary)
                 }
                 .tint(KlarColors.positive)
 
                 HStack {
                     Text("Export format")
                         .font(KlarFonts.body(14))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(KlarColors.primary)
                     Spacer()
                     Picker("Format", selection: $exportFormat) {
                         Text("PDF").tag("PDF")
@@ -236,10 +236,10 @@ struct SettingsView: View {
                     }
                     .font(KlarFonts.label(14))
                     .fontWeight(.semibold)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(.white)
+                    .background(KlarColors.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
             }
@@ -249,7 +249,7 @@ struct SettingsView: View {
 
     // MARK: - Profile
     private var profileSection: some View {
-        KlarCard {
+        KlarCard(dashedBorder: true) {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "PROFILE")
 
@@ -266,7 +266,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         TextField("Name", text: $userName)
                             .font(KlarFonts.body(15))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(KlarColors.primary)
                         TextField("Email", text: $userEmail)
                             .font(KlarFonts.label(13))
                             .foregroundStyle(KlarColors.secondary)
@@ -304,7 +304,7 @@ struct AddRuleSheet: View {
         VStack(spacing: 20) {
             Text("ADD RULE")
                 .font(KlarFonts.heading(18))
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
                 .padding(.top, 24)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -315,7 +315,7 @@ struct AddRuleSheet: View {
 
                 TextField("e.g. zomato, amazon", text: $keyword)
                     .font(KlarFonts.body(14))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(KlarColors.primary)
                     .padding(14)
                     .background(KlarColors.surfaceElevated)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -346,7 +346,7 @@ struct AddRuleSheet: View {
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
                                 .frame(maxWidth: .infinity)
-                                .background(selectedCategory == name ? KlarColors.categoryColor(for: name).opacity(0.3) : KlarColors.surfaceElevated)
+                                .background(selectedCategory == name ? KlarColors.categoryColor(for: name) : KlarColors.surfaceElevated)
                                 .clipShape(Capsule())
                         }
                     }
@@ -362,10 +362,10 @@ struct AddRuleSheet: View {
                 Text("Add Rule")
                     .font(KlarFonts.label(14))
                     .fontWeight(.bold)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(.white)
+                    .background(KlarColors.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .padding(.bottom, 32)
@@ -392,12 +392,12 @@ struct AddCategorySheet: View {
         VStack(spacing: 20) {
             Text("NEW CATEGORY")
                 .font(KlarFonts.heading(18))
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
                 .padding(.top, 24)
 
             TextField("Category name", text: $categoryName)
                 .font(KlarFonts.body(14))
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
                 .padding(14)
                 .background(KlarColors.surfaceElevated)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -426,7 +426,7 @@ struct AddCategorySheet: View {
 
             ColorPicker("Category Color", selection: $selectedColor)
                 .font(KlarFonts.body(14))
-                .foregroundStyle(.white)
+                .foregroundStyle(KlarColors.primary)
 
             Spacer()
 
@@ -439,10 +439,10 @@ struct AddCategorySheet: View {
                 Text("Create Category")
                     .font(KlarFonts.label(14))
                     .fontWeight(.bold)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(.white)
+                    .background(KlarColors.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .padding(.bottom, 32)
