@@ -530,7 +530,7 @@ struct OCRScannerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var scannedText = ""
-    @State private var showScanner = true
+    @State private var showScanner = false
     @State private var parsedMerchant = ""
     @State private var parsedAmount = ""
     @State private var parsedDate = Date()
@@ -742,6 +742,13 @@ struct OCRScannerSheet: View {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Done") { isAmountFocused = false }.fontWeight(.semibold)
+            }
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if scannedText.isEmpty {
+                    showScanner = true
+                }
             }
         }
     }
