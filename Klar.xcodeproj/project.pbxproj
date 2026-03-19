@@ -31,6 +31,8 @@
 		AA000022 /* SpendingTrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000022; };
 		AA000023 /* SubscriptionAuditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000023; };
 		AA000024 /* StatementParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000024; };
+		AA000025 /* AddTransactionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000025; };
+		AA000026 /* OCRScannerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000026; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -58,6 +60,8 @@
 		BB000022 /* SpendingTrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingTrendsView.swift; sourceTree = "<group>"; };
 		BB000023 /* SubscriptionAuditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionAuditView.swift; sourceTree = "<group>"; };
 		BB000024 /* StatementParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementParser.swift; sourceTree = "<group>"; };
+		BB000025 /* AddTransactionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddTransactionSheet.swift; sourceTree = "<group>"; };
+		BB000026 /* OCRScannerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRScannerSheet.swift; sourceTree = "<group>"; };
 		CC000001 /* Klar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Klar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -133,6 +137,8 @@
 				BB000018 /* NetFlowCard.swift */,
 				BB000019 /* CategoryBreakdown.swift */,
 				BB000020 /* AccountSnapshots.swift */,
+				BB000025 /* AddTransactionSheet.swift */,
+				BB000026 /* OCRScannerSheet.swift */,
 			);
 			path = Dashboard;
 			sourceTree = "<group>";
@@ -283,6 +289,8 @@
 				AA000022 /* SpendingTrendsView.swift in Sources */,
 				AA000023 /* SubscriptionAuditView.swift in Sources */,
 				AA000024 /* StatementParser.swift in Sources */,
+				AA000025 /* AddTransactionSheet.swift in Sources */,
+				AA000026 /* OCRScannerSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -353,6 +361,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Klar;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Klar uses the camera to scan bills and receipts for adding transactions.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
@@ -382,6 +391,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Klar;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Klar uses the camera to scan bills and receipts for adding transactions.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
