@@ -210,7 +210,7 @@ struct VisualizerView: View {
                         .padding(.horizontal, 20)
                 }
 
-                Spacer(minLength: 100)
+                Spacer(minLength: 20)
             }
         }
         .background(KlarColors.background)

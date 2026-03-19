@@ -152,7 +152,7 @@ struct LedgerView: View {
                             }
                         }
                     }
-                    .padding(.bottom, isSelectMode ? 80 : 100)
+                    .padding(.bottom, isSelectMode ? 60 : 20)
                 }
             }
 

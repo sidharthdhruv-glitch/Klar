@@ -53,11 +53,14 @@ actor StatementParser {
             throw ParserError.invalidPDF
         }
 
+        // Extract text page by page
         var allText = ""
+        var perPageTexts: [String] = []
         for i in 0..<document.pageCount {
             guard let page = document.page(at: i) else { continue }
             if let pageText = page.string {
                 allText += pageText + "\n"
+                perPageTexts.append(pageText)
             }
         }
 
@@ -72,31 +75,48 @@ actor StatementParser {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
-        // Strategy 1: Column-aware parsing with value date handling
-        var transactions = parseColumnAware(lines: lines)
+        // Try ALL strategies and pick the one with the most results
+        var bestTransactions: [ParsedRow] = []
 
-        // Strategy 2: Date-anchored parsing (scans entire text for date→amount patterns)
-        if transactions.count < 10 {
-            let anchored = parseDateAnchored(text: preprocessed)
-            if anchored.count > transactions.count {
-                transactions = anchored
+        // Strategy 1: Column-aware parsing on full text
+        let columnAware = parseColumnAware(lines: lines)
+        if columnAware.count > bestTransactions.count {
+            bestTransactions = columnAware
+        }
+
+        // Strategy 2: Page-by-page column-aware parsing (handles multi-page better)
+        if perPageTexts.count > 1 {
+            var pageByPage: [ParsedRow] = []
+            for pageText in perPageTexts {
+                let pagePreprocessed = preprocessText(pageText)
+                let pageLines = pagePreprocessed.components(separatedBy: .newlines)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                pageByPage.append(contentsOf: parseColumnAware(lines: pageLines))
+            }
+            if pageByPage.count > bestTransactions.count {
+                bestTransactions = pageByPage
             }
         }
 
-        // Strategy 3: Line-by-line fallback
-        if transactions.count < 5 {
-            let lineByLine = parseLineByLine(lines: lines)
-            if lineByLine.count > transactions.count {
-                transactions = lineByLine
-            }
+        // Strategy 3: Date-anchored parsing (scans entire text for date->amount patterns)
+        let anchored = parseDateAnchored(text: preprocessed)
+        if anchored.count > bestTransactions.count {
+            bestTransactions = anchored
+        }
+
+        // Strategy 4: Line-by-line fallback
+        let lineByLine = parseLineByLine(lines: lines)
+        if lineByLine.count > bestTransactions.count {
+            bestTransactions = lineByLine
         }
 
         var errors: [String] = []
-        if transactions.isEmpty {
+        if bestTransactions.isEmpty {
             errors.append("Could not extract any transactions. The PDF format may not be supported.")
         }
 
-        return ParseResult(transactions: transactions, errors: errors, fileName: fileName, source: .pdf)
+        return ParseResult(transactions: bestTransactions, errors: errors, fileName: fileName, source: .pdf)
     }
 
     // MARK: - Text Preprocessing
@@ -162,8 +182,8 @@ actor StatementParser {
             )
             let matchCount = words.intersection(headerKeywords).count
 
-            // Need at least 3 header keywords to consider it a table header
-            guard matchCount >= 3 else { continue }
+            // Need at least 2 header keywords to consider it a table header
+            guard matchCount >= 2 else { continue }
 
             let hasDebitCredit =
                 (lower.contains("withdrawal") || lower.contains("debit") || lower.range(of: #"\bdr\b"#, options: .regularExpression) != nil) &&
@@ -205,7 +225,7 @@ actor StatementParser {
             guard let date = currentDate, !currentNumbers.isEmpty else { return }
 
             var cleanDesc = cleanDescription(currentDesc)
-            // Don't drop transactions just because description is empty —
+            // Don't drop transactions just because description is empty --
             // use a placeholder so we preserve the date and amount
             if cleanDesc.isEmpty { cleanDesc = "Transaction" }
 
@@ -232,28 +252,23 @@ actor StatementParser {
             if let (date, remaining) = extractDate(from: line) {
                 let (desc, nums, crdr) = extractTrailingNumbers(from: remaining)
 
-                // KEY: Detect if this is a VALUE DATE (part of previous transaction)
-                // rather than a new transaction date.
-                // A value date typically:
-                //   1. Has no description after it (just numbers or empty)
-                //   2. The previous transaction has no amounts yet (waiting for them)
-                //   3. OR it's the same/close date and adds amounts to complete the previous txn
-                let descIsEmpty = desc.trimmingCharacters(in: .whitespaces).isEmpty ||
-                                  desc.range(of: #"^[\d,.\s]+$"#, options: .regularExpression) != nil // all digits/commas
+                // RELAXED value date detection:
+                // A line with a date is a VALUE DATE only when:
+                //   1. The previous transaction has NO amounts AND this line has ONLY amounts (no description text)
+                //   2. OR they share the exact same date and this line has no meaningful description
+                let descTrimmed = desc.trimmingCharacters(in: .whitespaces)
+                let descIsEmpty = descTrimmed.isEmpty ||
+                                  descTrimmed.range(of: #"^[\d,.\s]+$"#, options: .regularExpression) != nil
                 let prevHasNoAmounts = currentDate != nil && currentNumbers.isEmpty
-                let prevHasAmounts = currentDate != nil && !currentNumbers.isEmpty
 
-                let daysDiff: Int = {
-                    guard let prev = currentDate else { return 999 }
-                    return abs(Calendar.current.dateComponents([.day], from: prev, to: date).day ?? 999)
+                let isSameDate: Bool = {
+                    guard let prev = currentDate else { return false }
+                    return Calendar.current.isDate(prev, inSameDayAs: date)
                 }()
 
-                // It's a value date if:
-                // - Previous txn exists with no amounts, and this line has no description (just amounts)
-                // - OR previous txn exists, dates are very close, and this line is just amounts
+                // Strict value date: only merge if previous txn truly needs amounts
                 let isValueDate = (prevHasNoAmounts && descIsEmpty && !nums.isEmpty) ||
-                                  (prevHasNoAmounts && daysDiff <= 1) ||
-                                  (prevHasAmounts && descIsEmpty && !nums.isEmpty && daysDiff <= 1)
+                                  (prevHasNoAmounts && isSameDate && descIsEmpty)
 
                 if isValueDate {
                     // Merge into current transaction: add amounts
@@ -263,7 +278,7 @@ actor StatementParser {
                     currentNumbers.append(contentsOf: nums)
                     if let cr = crdr { currentCrDr = cr }
                 } else {
-                    // Genuine new transaction
+                    // Genuine new transaction -- flush the previous one
                     flushTransaction()
                     currentDate = date
                     currentDesc = desc
@@ -273,6 +288,9 @@ actor StatementParser {
             } else if currentDate != nil {
                 // Continuation line (multi-line narration or additional numbers)
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+                // Only skip lines that are clearly non-transaction metadata
+                // Use strict check to avoid filtering real continuation content
                 if looksLikeNonTransactionLine(trimmed) { continue }
 
                 let (desc, nums, crdr) = extractTrailingNumbers(from: trimmed)
@@ -280,8 +298,8 @@ actor StatementParser {
                     currentDesc += " " + desc
                 }
                 if !nums.isEmpty {
-                    // Keep collecting numbers (up to a reasonable limit)
-                    if currentNumbers.count < expectedNumCols + 2 {
+                    // Keep collecting numbers (up to a generous limit)
+                    if currentNumbers.count < expectedNumCols + 4 {
                         currentNumbers.append(contentsOf: nums)
                     }
                     if let cr = crdr { currentCrDr = cr }
@@ -355,6 +373,7 @@ actor StatementParser {
         // Value dates have only numbers following them.
         struct ClassifiedDate {
             let date: Date
+            let startPosition: Int
             let endPosition: Int
             let isTransactionDate: Bool // true = starts a transaction, false = value date
         }
@@ -362,59 +381,58 @@ actor StatementParser {
         var classified: [ClassifiedDate] = []
         for (idx, dp) in allDates.enumerated() {
             let lookAheadStart = dp.endPosition
-            let lookAheadEnd = min(dp.endPosition + 40, idx + 1 < allDates.count ? allDates[idx + 1].startPosition : nsText.length)
+            let lookAheadEnd = min(dp.endPosition + 60, idx + 1 < allDates.count ? allDates[idx + 1].startPosition : nsText.length)
             guard lookAheadStart < lookAheadEnd else {
-                classified.append(ClassifiedDate(date: dp.date, endPosition: dp.endPosition, isTransactionDate: false))
+                classified.append(ClassifiedDate(date: dp.date, startPosition: dp.startPosition, endPosition: dp.endPosition, isTransactionDate: false))
                 continue
             }
             let afterText = nsText.substring(with: NSRange(location: lookAheadStart, length: lookAheadEnd - lookAheadStart))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // If what follows starts with letters (narration), it's a transaction date
-            let startsWithLetters = afterText.range(of: #"^[A-Za-z]"#, options: .regularExpression) != nil
-            classified.append(ClassifiedDate(date: dp.date, endPosition: dp.endPosition, isTransactionDate: startsWithLetters))
+            // If what follows contains letters (narration), it's a transaction date
+            // Allow leading whitespace/newlines before letters
+            let hasLetters = afterText.range(of: #"[A-Za-z]{2,}"#, options: .regularExpression) != nil
+            // Check if it's purely numeric (value date line with just amounts)
+            let isPurelyNumeric = afterText.range(of: #"^[\d,.\s\-\+]+$"#, options: .regularExpression) != nil
+
+            let isTransaction = hasLetters && !isPurelyNumeric
+            classified.append(ClassifiedDate(date: dp.date, startPosition: dp.startPosition, endPosition: dp.endPosition, isTransactionDate: isTransaction))
         }
 
-        // Build transactions from classified dates
+        // Build transactions: take text between consecutive transaction dates
         var transactions: [ParsedRow] = []
-        var i = 0
-        while i < classified.count {
-            guard classified[i].isTransactionDate else { i += 1; continue }
 
-            let txnDate = classified[i].date
-            let textStart = classified[i].endPosition
+        // Collect indices of transaction dates
+        var txnIndices: [Int] = []
+        for (idx, cd) in classified.enumerated() {
+            if cd.isTransactionDate {
+                txnIndices.append(idx)
+            }
+        }
 
-            // Find the start of the NEXT transaction date
-            var nextTxnStart = nsText.length
-            var j = i + 1
-            while j < classified.count {
-                if classified[j].isTransactionDate {
-                    nextTxnStart = classified[j].endPosition - (classified[j].endPosition > 10 ? 10 : 0)
-                    // Back up to the start of the date match — find it
-                    // Actually we need the startPosition, but we only stored endPosition.
-                    // Use the date pattern length as estimate
-                    nextTxnStart = max(textStart, nextTxnStart - 10)
-                    break
-                }
-                j += 1
+        for (ti, classifiedIdx) in txnIndices.enumerated() {
+            let txnDate = classified[classifiedIdx].date
+            let textStart = classified[classifiedIdx].endPosition
+
+            // End of this transaction's text = start of the next transaction date
+            let nextTxnStart: Int
+            if ti + 1 < txnIndices.count {
+                nextTxnStart = classified[txnIndices[ti + 1]].startPosition
+            } else {
+                nextTxnStart = nsText.length
             }
 
-            // For simplicity, find the actual start of the next transaction's date
-            // by searching backwards from nextTxnStart for the date
-            if j < classified.count {
-                // Find the position of the next transaction date in allDates
-                for dp in allDates {
-                    if dp.endPosition == classified[j].endPosition {
-                        nextTxnStart = dp.startPosition
-                        break
-                    }
-                }
-            }
-
-            guard textStart < nextTxnStart else { i = j; continue }
+            guard textStart < nextTxnStart else { continue }
 
             let chunk = nsText.substring(with: NSRange(location: textStart, length: nextTxnStart - textStart))
-            let (desc, nums, crdr) = extractTrailingNumbers(from: chunk)
+
+            // Clean page headers/footers from the chunk
+            let chunkLines = chunk.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty && !isPageHeaderOrFooter($0) && !isSeparatorLine($0) }
+            let cleanedChunk = chunkLines.joined(separator: " ")
+
+            let (desc, nums, crdr) = extractTrailingNumbers(from: cleanedChunk)
 
             if !nums.isEmpty {
                 var cleanDesc = cleanDescription(desc)
@@ -432,8 +450,6 @@ actor StatementParser {
                     transactions.append(ParsedRow(date: txnDate, description: cleanDesc, amount: amount, type: type))
                 }
             }
-
-            i = j
         }
 
         return transactions
@@ -443,7 +459,8 @@ actor StatementParser {
 
     /// Extracts numeric values from the trailing (right) side of a text string.
     /// Works right-to-left, stopping at the first non-numeric token.
-    /// Handles Indian number formatting (1,57,370.00) and Cr/Dr markers.
+    /// Handles Indian number formatting (1,57,370.00), Cr/Dr markers, and negative numbers
+    /// in brackets like (1,234.56) or with (-) suffix.
     private func extractTrailingNumbers(from text: String) -> (description: String, numbers: [Double], crDr: String?) {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return ("", [], nil) }
@@ -459,21 +476,35 @@ actor StatementParser {
             let lower = token.lowercased()
 
             // Check for Cr/Dr markers
-            if lower == "cr" || lower == "dr" || lower == "cr." || lower == "dr." {
-                crDr = lower.hasPrefix("cr") ? "cr" : "dr"
+            if lower == "cr" || lower == "dr" || lower == "cr." || lower == "dr." ||
+               lower == "(cr)" || lower == "(dr)" {
+                crDr = lower.contains("cr") ? "cr" : "dr"
                 descEndIndex = i
                 continue
             }
 
+            // Strip brackets for negative numbers: (1,234.56) -> 1234.56
+            var tokenCleaned = token
+            var bracketNegative = false
+            if tokenCleaned.hasPrefix("(") && tokenCleaned.hasSuffix(")") {
+                tokenCleaned = String(tokenCleaned.dropFirst().dropLast())
+                bracketNegative = true
+            }
+            // Handle (-) suffix: 1,234.56(-) -> 1234.56
+            if tokenCleaned.hasSuffix("(-)") {
+                tokenCleaned = String(tokenCleaned.dropLast(3))
+                bracketNegative = true
+            }
+
             // Check for number (Indian format: 1,57,370.00 or standard: 1,234.56 or plain: 943)
-            let cleaned = token.replacingOccurrences(of: ",", with: "")
+            let cleaned = tokenCleaned.replacingOccurrences(of: ",", with: "")
             let isNegative = cleaned.hasPrefix("-") || cleaned.hasPrefix("+")
             let absStr = isNegative ? String(cleaned.dropFirst()) : cleaned
 
             if absStr.range(of: #"^\d+\.?\d*$"#, options: .regularExpression) != nil,
                let num = Double(cleaned) {
                 numbers.insert(abs(num), at: 0)
-                if cleaned.hasPrefix("-") { crDr = "dr" }
+                if cleaned.hasPrefix("-") || bracketNegative { crDr = "dr" }
                 if cleaned.hasPrefix("+") { crDr = "cr" }
                 descEndIndex = i
             } else {
@@ -633,24 +664,32 @@ actor StatementParser {
     }
 
     private func isPageHeaderOrFooter(_ line: String) -> Bool {
-        let lower = line.lowercased()
-        return (lower.contains("page ") && lower.contains(" of ")) ||
-               lower.contains("statement of account") ||
-               lower.hasPrefix("opening balance") ||
-               lower.hasPrefix("closing balance") ||
-               lower.hasPrefix("generated") ||
-               lower.contains("this is a computer generated") ||
-               lower.contains("contents of this") ||
-               lower.contains("branch :") ||
-               lower.contains("account no")
+        let lower = line.lowercased().trimmingCharacters(in: .whitespaces)
+        // Only skip very clear non-transaction metadata lines
+        if lower.contains("page ") && lower.contains(" of ") { return true }
+        if lower.contains("statement of account") { return true }
+        if lower.hasPrefix("opening balance") { return true }
+        if lower.hasPrefix("closing balance") { return true }
+        if lower.contains("this is a computer generated") { return true }
+        if lower.contains("contents of this") { return true }
+        // Only exact "account no" headers, not "account no" inside a transaction
+        if lower.hasPrefix("account no") { return true }
+        if lower.hasPrefix("a/c no") { return true }
+        return false
     }
 
     private func looksLikeNonTransactionLine(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        let nonTxnKeywords = ["opening balance", "closing balance", "total", "page ",
-                              "statement summary", "branch", "ifsc", "address",
-                              "account number", "customer id", "nomination"]
-        return nonTxnKeywords.contains(where: { lower.contains($0) })
+        let lower = text.lowercased().trimmingCharacters(in: .whitespaces)
+        // Only skip lines that clearly begin with non-transaction markers
+        if lower.hasPrefix("opening balance") { return true }
+        if lower.hasPrefix("closing balance") { return true }
+        if lower.hasPrefix("statement summary") { return true }
+        if lower.hasPrefix("account number") { return true }
+        if lower.hasPrefix("customer id") { return true }
+        if lower.hasPrefix("nomination") { return true }
+        // Skip "total" only at start of line (not "Total Cab Fare" etc.)
+        if lower.hasPrefix("total ") && !lower.contains("total cab") && !lower.contains("total amount") { return true }
+        return false
     }
 
     /// Fallback: enhanced line-by-line parsing (uses same infrastructure)
@@ -983,6 +1022,25 @@ struct AutoCategorizer {
     static func extractMerchant(from description: String) -> String {
         var cleaned = description
 
+        // Fix PDFKit text-split artifacts
+        let splitFixes: [(String, String)] = [
+            (#"TRANSACTI\s*ON"#, "TRANSACTION"),
+            (#"US\s*ING"#, "USING"),
+            (#"USIN\s*G"#, "USING"),
+            (#"P\s*ARKS"#, "PARKS"),
+            (#"LIMI\s*TED"#, "LIMITED"),
+            (#"BROKING\s+LIMI\b"#, "BROKING LIMITED"),
+            (#"PAY\s*MENT"#, "PAYMENT"),
+            (#"TRANS\s*FER"#, "TRANSFER"),
+            (#"REVER\s*SAL"#, "REVERSAL"),
+            (#"SER\s*VICE"#, "SERVICE"),
+            (#"PUR\s*CHASE"#, "PURCHASE"),
+            (#"MCHUPI"#, "UPI"),
+        ]
+        for (pattern, replacement) in splitFixes {
+            cleaned = cleaned.replacingOccurrences(of: pattern, with: replacement, options: [.regularExpression, .caseInsensitive])
+        }
+
         // Remove common transaction type prefixes
         let prefixes = ["UPI/", "UPI-", "NEFT/", "NEFT-", "NEFT CR-", "NEFT CR/", "NEFT DR-", "NEFT DR/",
                         "IMPS/", "IMPS-", "POS/", "POS ", "ATM/", "ATM-", "ATM ",
@@ -1017,17 +1075,18 @@ struct AutoCategorizer {
             }
         }
 
-        // Remove alphanumeric bank codes (AXISP00768252541, YESB0APLUPI, UTIB0001394)
+        // Remove clear bank reference codes: 4+ letters followed by 5+ digits
         cleaned = cleaned.replacingOccurrences(
-            of: #"\b[A-Z]{3,}[A-Z0-9]{5,}\b"#, with: "", options: .regularExpression
+            of: #"\b[A-Z]{4,}\d{5,}\b"#, with: "", options: .regularExpression
         )
+        // Remove very long alphanumeric codes (12+ chars, clearly references)
         cleaned = cleaned.replacingOccurrences(
-            of: #"\b[A-Z0-9]{8,}\b"#, with: "", options: .regularExpression
+            of: #"\b[A-Z0-9]{12,}\b"#, with: "", options: .regularExpression
         )
 
-        // Remove reference numbers (6+ consecutive digits)
+        // Remove reference numbers (8+ consecutive digits)
         cleaned = cleaned.replacingOccurrences(
-            of: #"\b\d{6,}\b"#, with: "", options: .regularExpression
+            of: #"\b\d{8,}\b"#, with: "", options: .regularExpression
         )
 
         // Remove embedded amounts (e.g., "12,128.00")

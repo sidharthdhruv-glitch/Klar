@@ -8,11 +8,67 @@ struct DashboardView: View {
     @AppStorage("userName") private var userName = "User"
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 50000
 
-    private var currentMonthTransactions: [Transaction] {
+    @State private var selectedMonthOffset: Int = 0
+
+    private var availableMonths: [(month: Int, year: Int, label: String)] {
         let cal = Calendar.current
-        let now = Date()
-        let month = cal.component(.month, from: now)
-        let year = cal.component(.year, from: now)
+        var seen: Set<String> = []
+        var result: [(month: Int, year: Int, label: String)] = []
+        let f = DateFormatter()
+        f.dateFormat = "MMMM yyyy"
+
+        for txn in transactions {
+            let m = cal.component(.month, from: txn.date)
+            let y = cal.component(.year, from: txn.date)
+            let key = "\(y)-\(m)"
+            if !seen.contains(key) {
+                seen.insert(key)
+                var comps = DateComponents()
+                comps.year = y
+                comps.month = m
+                comps.day = 1
+                let label = cal.date(from: comps).map { f.string(from: $0).uppercased() } ?? key
+                result.append((month: m, year: y, label: label))
+            }
+        }
+
+        result.sort { ($0.year, $0.month) > ($1.year, $1.month) }
+
+        // Always include current month
+        let nowM = cal.component(.month, from: Date())
+        let nowY = cal.component(.year, from: Date())
+        if !result.contains(where: { $0.month == nowM && $0.year == nowY }) {
+            var comps = DateComponents()
+            comps.year = nowY
+            comps.month = nowM
+            comps.day = 1
+            let label = cal.date(from: comps).map { f.string(from: $0).uppercased() } ?? "\(nowY)-\(nowM)"
+            result.insert((month: nowM, year: nowY, label: label), at: 0)
+        }
+
+        return result
+    }
+
+    private var selectedMonth: (month: Int, year: Int) {
+        let months = availableMonths
+        let index = min(max(selectedMonthOffset, 0), months.count - 1)
+        guard !months.isEmpty else {
+            let cal = Calendar.current
+            return (cal.component(.month, from: Date()), cal.component(.year, from: Date()))
+        }
+        return (months[index].month, months[index].year)
+    }
+
+    private var selectedMonthLabel: String {
+        let months = availableMonths
+        let index = min(max(selectedMonthOffset, 0), months.count - 1)
+        guard !months.isEmpty else { return "" }
+        return months[index].label
+    }
+
+    private var activeTransactions: [Transaction] {
+        let cal = Calendar.current
+        let (month, year) = selectedMonth
         return transactions.filter {
             cal.component(.month, from: $0.date) == month &&
             cal.component(.year, from: $0.date) == year
@@ -20,11 +76,11 @@ struct DashboardView: View {
     }
 
     private var totalIncome: Double {
-        currentMonthTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
+        activeTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
     }
 
     private var totalExpense: Double {
-        currentMonthTransactions.filter { $0.type == .expense }.reduce(0) { $0 + abs($1.amount) }
+        activeTransactions.filter { $0.type == .expense }.reduce(0) { $0 + abs($1.amount) }
     }
 
     private var totalBalance: Double {
@@ -33,7 +89,7 @@ struct DashboardView: View {
 
     private var categorySpend: [(String, Double)] {
         var dict: [String: Double] = [:]
-        for txn in currentMonthTransactions where txn.type == .expense {
+        for txn in activeTransactions where txn.type == .expense {
             dict[txn.category, default: 0] += abs(txn.amount)
         }
         return dict.sorted { $0.value > $1.value }
@@ -50,7 +106,7 @@ struct DashboardView: View {
         var dailyTotals: [Double] = []
         for daysAgo in stride(from: 6, through: 0, by: -1) {
             let day = cal.date(byAdding: .day, value: -daysAgo, to: now)!
-            let dayTotal = transactions.filter { txn in
+            let dayTotal = activeTransactions.filter { txn in
                 txn.type == .expense && cal.isDate(txn.date, inSameDayAs: day)
             }.reduce(0) { $0 + abs($1.amount) }
             dailyTotals.append(dayTotal)
@@ -99,6 +155,40 @@ struct DashboardView: View {
                 if transactions.isEmpty {
                     emptyState
                 } else {
+                    // Month Selector
+                    if availableMonths.count > 1 {
+                        HStack {
+                            Button {
+                                withAnimation {
+                                    selectedMonthOffset = min(selectedMonthOffset + 1, availableMonths.count - 1)
+                                }
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(selectedMonthOffset < availableMonths.count - 1 ? KlarColors.primary : KlarColors.inactive)
+                            }
+                            .disabled(selectedMonthOffset >= availableMonths.count - 1)
+
+                            Spacer()
+                            Text(selectedMonthLabel)
+                                .font(KlarFonts.heading(16))
+                                .foregroundStyle(KlarColors.primary)
+                            Spacer()
+
+                            Button {
+                                withAnimation {
+                                    selectedMonthOffset = max(selectedMonthOffset - 1, 0)
+                                }
+                            } label: {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(selectedMonthOffset > 0 ? KlarColors.primary : KlarColors.inactive)
+                            }
+                            .disabled(selectedMonthOffset <= 0)
+                        }
+                        .padding(.horizontal, 20)
+                    }
+
                     // Total Balance Card
                     KlarCard(dashedBorder: true) {
                         VStack(alignment: .leading, spacing: 8) {
@@ -167,10 +257,30 @@ struct DashboardView: View {
                     }
                 }
 
-                Spacer(minLength: 100)
+                Spacer(minLength: 20)
             }
         }
         .background(KlarColors.background)
+        .onAppear {
+            autoSelectMonth()
+        }
+    }
+
+    private func autoSelectMonth() {
+        // If current month has no data, auto-select the first month that does
+        if activeTransactions.isEmpty && availableMonths.count > 1 {
+            let cal = Calendar.current
+            for (index, monthInfo) in availableMonths.enumerated() {
+                let hasData = transactions.contains {
+                    cal.component(.month, from: $0.date) == monthInfo.month &&
+                    cal.component(.year, from: $0.date) == monthInfo.year
+                }
+                if hasData {
+                    selectedMonthOffset = index
+                    break
+                }
+            }
+        }
     }
 
     private var emptyState: some View {

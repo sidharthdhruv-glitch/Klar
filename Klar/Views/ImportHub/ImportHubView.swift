@@ -94,7 +94,7 @@ struct ImportHubView: View {
                     pendingReviewSection
                 }
 
-                Spacer(minLength: 100)
+                Spacer(minLength: 20)
             }
         }
         .background(KlarColors.background)

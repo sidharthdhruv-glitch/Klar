@@ -7,7 +7,7 @@ struct ContentView: View {
     @State private var hasSeeded = false
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        VStack(spacing: 0) {
             Group {
                 switch selectedTab {
                 case .pulse:

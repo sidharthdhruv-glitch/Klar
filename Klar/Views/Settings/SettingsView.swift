@@ -30,7 +30,7 @@ struct SettingsView: View {
                 exportSection
                 profileSection
 
-                Spacer(minLength: 100)
+                Spacer(minLength: 20)
             }
         }
         .background(KlarColors.background)
