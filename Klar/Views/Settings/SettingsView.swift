@@ -6,14 +6,15 @@ struct SettingsView: View {
     @Query private var categories: [Category]
     @Environment(\.modelContext) private var modelContext
 
-    @State private var showAddRule = false
     @State private var showAddCategory = false
+    @State private var showRuleEngine = false
     @AppStorage("includeChartsInExport") private var includeChartsInExport = true
     @AppStorage("autoExportOnFirst") private var autoExportOnFirst = false
     @AppStorage("exportFormat") private var exportFormat = "PDF"
     @AppStorage("userName") private var userName = "User"
     @AppStorage("userEmail") private var userEmail = ""
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 50000
+    @FocusState private var isBudgetFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -34,13 +35,8 @@ struct SettingsView: View {
             }
         }
         .background(KlarColors.background)
-        .sheet(isPresented: $showAddRule) {
-            AddRuleSheet { keyword, category in
-                let rule = Rule(keyword: keyword, targetCategory: category)
-                modelContext.insert(rule)
-                try? modelContext.save()
-                showAddRule = false
-            }
+        .sheet(isPresented: $showRuleEngine) {
+            RuleEngineSheet()
         }
         .sheet(isPresented: $showAddCategory) {
             AddCategorySheet { name, colorHex, symbol in
@@ -54,62 +50,25 @@ struct SettingsView: View {
 
     // MARK: - Rule Engine
     private var ruleEngineSection: some View {
-        KlarCard(dashedBorder: true) {
-            VStack(alignment: .leading, spacing: 14) {
-                SectionHeader(title: "RULE ENGINE")
-
-                Text("Rules auto-categorize imported transactions by keyword matching.")
-                    .font(KlarFonts.label(11))
-                    .foregroundStyle(KlarColors.inactive)
-
-                if rules.isEmpty {
-                    Text("No rules yet. Add rules to auto-categorize imports.")
-                        .font(KlarFonts.body(14))
+        Button {
+            showRuleEngine = true
+        } label: {
+            KlarCard(dashedBorder: true) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        SectionHeader(title: "RULE ENGINE")
+                        Text("\(rules.count) rule\(rules.count == 1 ? "" : "s") configured")
+                            .font(KlarFonts.label(11))
+                            .foregroundStyle(KlarColors.inactive)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(KlarColors.secondary)
-                        .padding(.vertical, 8)
-                } else {
-                    ForEach(rules, id: \.id) { rule in
-                        HStack {
-                            Text("If")
-                                .font(KlarFonts.body(14))
-                                .foregroundStyle(KlarColors.secondary)
-                            Text("\"\(rule.keyword)\"")
-                                .font(KlarFonts.body(14))
-                                .fontWeight(.semibold)
-                                .foregroundStyle(KlarColors.primary)
-                            Text("->")
-                                .foregroundStyle(KlarColors.secondary)
-                            CategoryPill(
-                                name: rule.targetCategory,
-                                color: KlarColors.categoryColor(for: rule.targetCategory)
-                            )
-                            Spacer()
-                            Button {
-                                modelContext.delete(rule)
-                                try? modelContext.save()
-                            } label: {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(KlarColors.negative.opacity(0.7))
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
                 }
-
-                Button {
-                    showAddRule = true
-                } label: {
-                    HStack {
-                        Image(systemName: "plus.circle.fill")
-                        Text("Add Rule")
-                    }
-                    .font(KlarFonts.label(13))
-                    .foregroundStyle(KlarColors.primary)
-                }
-                .padding(.top, 4)
             }
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 20)
     }
 
@@ -181,6 +140,16 @@ struct SettingsView: View {
                         .font(KlarFonts.heading(20))
                         .foregroundStyle(KlarColors.primary)
                         .keyboardType(.numberPad)
+                        .focused($isBudgetFocused)
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Done") {
+                                    isBudgetFocused = false
+                                }
+                                .fontWeight(.semibold)
+                            }
+                        }
                 }
                 .padding(14)
                 .background(KlarColors.surfaceElevated)
@@ -288,6 +257,135 @@ struct SettingsView: View {
             }
         }
         .padding(.horizontal, 20)
+    }
+}
+
+// MARK: - Rule Engine Sheet
+struct RuleEngineSheet: View {
+    @Query private var rules: [Rule]
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @State private var showAddRule = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(KlarColors.secondary)
+                }
+
+                Spacer()
+
+                Text("RULE ENGINE")
+                    .font(KlarFonts.heading(18))
+                    .foregroundStyle(KlarColors.primary)
+
+                Spacer()
+
+                Button { showAddRule = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(KlarColors.accent)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+
+            Text("Rules auto-categorize imported transactions by keyword matching.")
+                .font(KlarFonts.label(11))
+                .foregroundStyle(KlarColors.inactive)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+
+            Divider().background(KlarColors.barTrack)
+
+            if rules.isEmpty {
+                Spacer()
+                VStack(spacing: 12) {
+                    Image(systemName: "text.badge.plus")
+                        .font(.system(size: 36))
+                        .foregroundStyle(KlarColors.inactive)
+                    Text("No rules yet")
+                        .font(KlarFonts.heading(16))
+                        .foregroundStyle(KlarColors.secondary)
+                    Text("Add rules to auto-categorize your imports.")
+                        .font(KlarFonts.label(12))
+                        .foregroundStyle(KlarColors.inactive)
+                }
+                Spacer()
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(rules, id: \.id) { rule in
+                            HStack(spacing: 10) {
+                                Text("If")
+                                    .font(KlarFonts.body(14))
+                                    .foregroundStyle(KlarColors.secondary)
+                                Text("\"\(rule.keyword)\"")
+                                    .font(KlarFonts.body(14))
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(KlarColors.primary)
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(KlarColors.secondary)
+                                CategoryPill(
+                                    name: rule.targetCategory,
+                                    color: KlarColors.categoryColor(for: rule.targetCategory)
+                                )
+                                Spacer()
+                                Button {
+                                    modelContext.delete(rule)
+                                    try? modelContext.save()
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(KlarColors.negative.opacity(0.7))
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 14)
+
+                            Divider()
+                                .background(KlarColors.barTrack)
+                                .padding(.leading, 20)
+                        }
+                    }
+                }
+            }
+
+            // Add rule button at bottom
+            Button {
+                showAddRule = true
+            } label: {
+                HStack {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Add Rule")
+                }
+                .font(KlarFonts.label(14))
+                .fontWeight(.semibold)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(KlarColors.primary)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 32)
+        }
+        .background(KlarColors.background)
+        .presentationDetents([.large])
+        .sheet(isPresented: $showAddRule) {
+            AddRuleSheet { keyword, category in
+                let rule = Rule(keyword: keyword, targetCategory: category)
+                modelContext.insert(rule)
+                try? modelContext.save()
+                showAddRule = false
+            }
+        }
     }
 }
 

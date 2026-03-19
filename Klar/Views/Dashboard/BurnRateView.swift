@@ -12,9 +12,23 @@ struct BurnRateView: View {
         return KlarColors.negative
     }
 
+    private var statusText: String {
+        if rate < 0.5 { return "On track" }
+        if rate < 0.75 { return "Watch spending" }
+        if rate < 1.0 { return "Near limit" }
+        return "Over budget"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "BURN RATE")
+            HStack {
+                SectionHeader(title: "BURN RATE")
+                Spacer()
+                Text(statusText.uppercased())
+                    .font(KlarFonts.label(10))
+                    .tracking(0.5)
+                    .foregroundStyle(barColor)
+            }
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -24,13 +38,7 @@ struct BurnRateView: View {
 
                     HStack(spacing: 0) {
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(
-                                LinearGradient(
-                                    colors: [KlarColors.positive, KlarColors.searchHighlight],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
+                            .fill(barColor)
                             .frame(width: geo.size.width * min(barProgress, 1.0), height: 28)
                     }
 
@@ -43,6 +51,12 @@ struct BurnRateView: View {
                 }
             }
             .frame(height: 28)
+
+            if rate >= 1.0 {
+                Text("You've exceeded your monthly budget by \(CurrencyHelper.format(spent - budget))")
+                    .font(KlarFonts.label(11))
+                    .foregroundStyle(KlarColors.negative)
+            }
         }
         .padding(16)
         .background(KlarColors.surface)
