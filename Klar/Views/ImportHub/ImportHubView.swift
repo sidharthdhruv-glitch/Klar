@@ -328,6 +328,12 @@ struct ImportHubView: View {
         let parser = StatementParser()
         do {
             let result = try await parser.parseFile(at: url, accountName: account)
+            // Print debug log to Xcode console for diagnosis
+            if !result.debugLog.isEmpty {
+                print("=== Import Debug Log ===")
+                for entry in result.debugLog { print(entry) }
+                print("========================")
+            }
             let rulesArray = Array(rules)
 
             await MainActor.run {

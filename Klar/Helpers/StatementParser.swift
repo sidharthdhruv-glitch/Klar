@@ -1,6 +1,31 @@
 import Foundation
 import PDFKit
 import SwiftData
+import Vision
+
+// MARK: - Import Logger
+
+/// Collects structured debug logs during PDF parsing so we can trace
+/// exactly what happened on each page and why rows were kept or skipped.
+final class ImportLogger: @unchecked Sendable {
+    private var entries: [String] = []
+    private let lock = NSLock()
+
+    func log(_ message: String) {
+        lock.lock()
+        entries.append(message)
+        lock.unlock()
+        #if DEBUG
+        print("[ImportLogger] \(message)")
+        #endif
+    }
+
+    var allEntries: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries
+    }
+}
 
 // MARK: - Statement Parser
 /// Parses bank statements (PDF and CSV) into transactions with auto-categorization.
@@ -19,6 +44,7 @@ actor StatementParser {
     struct ParseResult: Sendable {
         let transactions: [ParsedRow]
         let errors: [String]
+        let debugLog: [String]
         let fileName: String
         let source: ImportSource
     }
@@ -39,7 +65,7 @@ actor StatementParser {
 
         switch ext {
         case "pdf":
-            return try parsePDF(data: data, fileName: fileName)
+            return try await parsePDF(data: data, fileName: fileName)
         case "csv":
             return try parseCSV(data: data, fileName: fileName)
         default:
@@ -49,23 +75,48 @@ actor StatementParser {
 
     // MARK: - PDF Parsing
 
-    private func parsePDF(data: Data, fileName: String) throws -> ParseResult {
+    private func parsePDF(data: Data, fileName: String) async throws -> ParseResult {
+        let logger = ImportLogger()
+
         guard let document = PDFDocument(data: data) else {
             throw ParserError.invalidPDF
         }
 
-        // Extract text page by page
+        logger.log("PDF pages: \(document.pageCount)")
+
+        // Extract text page by page, with OCR fallback for sparse pages
         var allText = ""
         var perPageTexts: [String] = []
         for i in 0..<document.pageCount {
-            guard let page = document.page(at: i) else { continue }
-            if let pageText = page.string {
+            guard let page = document.page(at: i) else {
+                logger.log("Page \(i + 1): could not load page object")
+                perPageTexts.append("")
+                continue
+            }
+            let pageText = page.string ?? ""
+            let charCount = pageText.trimmingCharacters(in: .whitespacesAndNewlines).count
+            logger.log("Page \(i + 1) text chars: \(charCount)")
+
+            if charCount < 40 {
+                // Page is sparse or scanned — try OCR fallback
+                logger.log("Page \(i + 1): text too sparse (\(charCount) chars), running OCR fallback")
+                let ocrText = await ocrPage(page)
+                let ocrLen = ocrText.trimmingCharacters(in: .whitespacesAndNewlines).count
+                logger.log("Page \(i + 1) OCR chars: \(ocrLen)")
+                if ocrLen > charCount {
+                    allText += ocrText + "\n"
+                    perPageTexts.append(ocrText)
+                } else {
+                    allText += pageText + "\n"
+                    perPageTexts.append(pageText)
+                }
+            } else {
                 allText += pageText + "\n"
                 perPageTexts.append(pageText)
             }
         }
 
-        guard !allText.isEmpty else {
+        guard !allText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ParserError.noTextContent
         }
 
@@ -76,56 +127,137 @@ actor StatementParser {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
-        // Try ALL strategies and pick the one with the most results
+        // Try ALL strategies and pick the one with the most results.
+        // No strategy is capped — each one processes ALL pages and ALL lines.
         var bestTransactions: [ParsedRow] = []
+        var bestStrategyName = "none"
 
         // Strategy 0: Position-aware table extraction (best for multi-column bank statements)
         // Uses character bounding boxes to reconstruct the actual table layout with
         // proper column separation, avoiding PDFKit's .string column-merging issues.
-        let positionAware = parsePositionAware(document: document)
+        let positionAware = parsePositionAware(document: document, logger: logger)
+        logger.log("Strategy 0 (position-aware): \(positionAware.count) transactions")
         if positionAware.count > bestTransactions.count {
             bestTransactions = positionAware
+            bestStrategyName = "position-aware"
         }
 
         // Strategy 1: Column-aware parsing on full text
         let columnAware = parseColumnAware(lines: lines)
+        logger.log("Strategy 1 (column-aware full text): \(columnAware.count) transactions")
         if columnAware.count > bestTransactions.count {
             bestTransactions = columnAware
+            bestStrategyName = "column-aware-full"
         }
 
         // Strategy 2: Page-by-page column-aware parsing (handles multi-page better)
         if perPageTexts.count > 1 {
             var pageByPage: [ParsedRow] = []
-            for pageText in perPageTexts {
+            for (pIdx, pageText) in perPageTexts.enumerated() {
                 let pagePreprocessed = preprocessText(pageText)
                 let pageLines = pagePreprocessed.components(separatedBy: .newlines)
                     .map { $0.trimmingCharacters(in: .whitespaces) }
                     .filter { !$0.isEmpty }
-                pageByPage.append(contentsOf: parseColumnAware(lines: pageLines))
+                let pageTxns = parseColumnAware(lines: pageLines)
+                logger.log("Strategy 2 page \(pIdx + 1): \(pageTxns.count) transactions")
+                pageByPage.append(contentsOf: pageTxns)
             }
+            logger.log("Strategy 2 (page-by-page column-aware): \(pageByPage.count) transactions total")
             if pageByPage.count > bestTransactions.count {
                 bestTransactions = pageByPage
+                bestStrategyName = "page-by-page-column"
             }
         }
 
         // Strategy 3: Date-anchored parsing (scans entire text for date->amount patterns)
         let anchored = parseDateAnchored(text: preprocessed)
+        logger.log("Strategy 3 (date-anchored): \(anchored.count) transactions")
         if anchored.count > bestTransactions.count {
             bestTransactions = anchored
+            bestStrategyName = "date-anchored"
         }
 
         // Strategy 4: Line-by-line fallback
         let lineByLine = parseLineByLine(lines: lines)
+        logger.log("Strategy 4 (line-by-line): \(lineByLine.count) transactions")
         if lineByLine.count > bestTransactions.count {
             bestTransactions = lineByLine
+            bestStrategyName = "line-by-line"
         }
+
+        logger.log("Best strategy: \(bestStrategyName) with \(bestTransactions.count) transactions")
+        logger.log("Final imported transactions: \(bestTransactions.count)")
 
         var errors: [String] = []
         if bestTransactions.isEmpty {
             errors.append("Could not extract any transactions. The PDF format may not be supported.")
         }
 
-        return ParseResult(transactions: bestTransactions, errors: errors, fileName: fileName, source: .pdf)
+        return ParseResult(
+            transactions: bestTransactions,
+            errors: errors,
+            debugLog: logger.allEntries,
+            fileName: fileName,
+            source: .pdf
+        )
+    }
+
+    // MARK: - OCR Fallback
+
+    /// Renders a PDF page to an image and runs Vision text recognition.
+    /// Used when PDFKit's text extraction returns sparse or no text (e.g. scanned pages).
+    private func ocrPage(_ page: PDFPage) async -> String {
+        let pageRect = page.bounds(for: .mediaBox)
+        let scale: CGFloat = 2.0 // 2x for better OCR accuracy
+        let width = Int(pageRect.width * scale)
+        let height = Int(pageRect.height * scale)
+
+        guard width > 0, height > 0 else { return "" }
+
+        // Render PDF page to CGImage
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return "" }
+
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.scaleBy(x: scale, y: scale)
+
+        // PDFPage.draw applies the page's transforms
+        page.draw(with: .mediaBox, to: context)
+
+        guard let cgImage = context.makeImage() else { return "" }
+
+        // Run Vision text recognition
+        return await withCheckedContinuation { continuation in
+            let request = VNRecognizeTextRequest { request, error in
+                guard error == nil,
+                      let observations = request.results as? [VNRecognizedTextObservation] else {
+                    continuation.resume(returning: "")
+                    return
+                }
+                // Sort by Y-position (top to bottom), then build text
+                let sorted = observations.sorted { $0.boundingBox.origin.y > $1.boundingBox.origin.y }
+                let lines = sorted.compactMap { $0.topCandidates(1).first?.string }
+                continuation.resume(returning: lines.joined(separator: "\n"))
+            }
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = false
+
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                continuation.resume(returning: "")
+            }
+        }
     }
 
     // MARK: - Position-Aware Table Extraction
@@ -164,6 +296,10 @@ actor StatementParser {
     /// Extracts table cells from a PDF page using character bounding boxes.
     /// Groups characters into rows by Y-coordinate and cells by X-gaps,
     /// preserving each cell's horizontal position for column mapping.
+    ///
+    /// Uses an adaptive gap threshold: computes the median inter-character gap
+    /// across the page, then uses `max(median * 3, 6)` as the column break threshold.
+    /// This handles PDFs with varying column spacing.
     private func extractPageCells(_ page: PDFPage) -> [[PageCell]] {
         let charCount = page.numberOfCharacters
         guard charCount > 0, let pageStr = page.string else { return [] }
@@ -203,7 +339,27 @@ actor StatementParser {
         }
         rows.append(rowBuf.sorted { $0.x < $1.x })
 
-        // Build cells: gap > 8pt between characters = column break
+        // Compute adaptive column-gap threshold from the distribution of gaps.
+        // Collect all inter-character gaps to find a natural break between
+        // "within-word" gaps and "between-column" gaps.
+        var allGaps: [CGFloat] = []
+        for row in rows {
+            for j in 1..<row.count {
+                let gap = row[j].x - row[j - 1].maxX
+                if gap > 0.5 { allGaps.append(gap) }
+            }
+        }
+        allGaps.sort()
+        // Adaptive threshold: use 3× the median gap, clamped to [6, 30]
+        let colGapThreshold: CGFloat
+        if allGaps.count >= 10 {
+            let median = allGaps[allGaps.count / 2]
+            colGapThreshold = min(max(median * 3, 6), 30)
+        } else {
+            colGapThreshold = 8 // fallback
+        }
+
+        // Build cells using the adaptive gap threshold
         var result: [[PageCell]] = []
         for row in rows {
             guard !row.isEmpty else { continue }
@@ -214,7 +370,7 @@ actor StatementParser {
 
             for j in 1..<row.count {
                 let gap = row[j].x - prevMaxX
-                if gap > 8 {
+                if gap > colGapThreshold {
                     let t = buf.trimmingCharacters(in: .whitespaces)
                     if !t.isEmpty {
                         cells.append(PageCell(text: t, xCenter: (cellXStart + prevMaxX) / 2))
@@ -307,7 +463,11 @@ actor StatementParser {
     ///
     /// This avoids the fundamental problem of PDFPage.string merging adjacent
     /// columns, which causes most transaction loss on multi-column bank statements.
-    private func parsePositionAware(document: PDFDocument) -> [ParsedRow] {
+    ///
+    /// If position-aware extraction yields zero cells for a page (e.g.
+    /// `characterBounds` returns empty rects), falls back to text-based
+    /// column-aware parsing for that page so no transactions are lost.
+    private func parsePositionAware(document: PDFDocument, logger: ImportLogger) -> [ParsedRow] {
         var transactions: [ParsedRow] = []
         var layout: ColumnLayout?
 
@@ -316,6 +476,9 @@ actor StatementParser {
         var currentDesc = ""
         var debitAmt: Double = 0
         var creditAmt: Double = 0
+        var skippedRows = 0
+        var continuationRows = 0
+        var valueDateRows = 0
 
         func flush() {
             guard let date = currentDate else { return }
@@ -323,7 +486,11 @@ actor StatementParser {
             let type: TransactionType
             if creditAmt > 0.001 { amount = creditAmt; type = .income }
             else if debitAmt > 0.001 { amount = debitAmt; type = .expense }
-            else { currentDate = nil; currentDesc = ""; debitAmt = 0; creditAmt = 0; return }
+            else {
+                logger.log("  Skipped row (no amount): date=\(date), desc=\(currentDesc.prefix(40))")
+                skippedRows += 1
+                currentDate = nil; currentDesc = ""; debitAmt = 0; creditAmt = 0; return
+            }
 
             var desc = cleanDescription(currentDesc)
             if desc.isEmpty { desc = "Transaction" }
@@ -332,9 +499,30 @@ actor StatementParser {
         }
 
         for pageIdx in 0..<document.pageCount {
-            guard let page = document.page(at: pageIdx) else { continue }
+            guard let page = document.page(at: pageIdx) else {
+                logger.log("Page \(pageIdx + 1) position-aware: could not load page")
+                continue
+            }
             let pageCells = extractPageCells(page)
-            guard !pageCells.isEmpty else { continue }
+            let txnCountBefore = transactions.count
+
+            if pageCells.isEmpty {
+                // characterBounds returned nothing — fall back to text-based parsing for this page
+                logger.log("Page \(pageIdx + 1) position-aware: 0 cells extracted, falling back to text-based")
+                flush() // flush any pending transaction from the previous page
+                if let pageText = page.string, !pageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let preprocessed = preprocessText(pageText)
+                    let pageLines = preprocessed.components(separatedBy: .newlines)
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                    let fallbackTxns = parseColumnAware(lines: pageLines)
+                    logger.log("Page \(pageIdx + 1) text fallback: \(fallbackTxns.count) transactions")
+                    transactions.append(contentsOf: fallbackTxns)
+                }
+                continue
+            }
+
+            logger.log("Page \(pageIdx + 1) position-aware: \(pageCells.count) rows extracted")
 
             // Detect header row on this page (headers repeat on each page in many statements)
             var dataStartIdx = 0
@@ -344,17 +532,36 @@ actor StatementParser {
                 let hasDesc = joined.contains("narration") || joined.contains("description") || joined.contains("particular")
                 let hasAmt = joined.contains("withdrawal") || joined.contains("deposit")
                               || joined.contains("debit") || joined.contains("credit")
+                              || joined.contains("amount")
 
                 if hasDate && (hasDesc || hasAmt) {
                     if let detected = detectColumnLayout(headerCells: row) {
                         layout = detected
                         dataStartIdx = i + 1
+                        logger.log("Page \(pageIdx + 1): header found at row \(i), columns: \(detected.columns.map { "\($0.role)" })")
                     }
                     break
                 }
             }
 
-            guard let currentLayout = layout else { continue }
+            guard let currentLayout = layout else {
+                logger.log("Page \(pageIdx + 1): no column layout detected, skipping page")
+                continue
+            }
+
+            // Also skip a second header-like row immediately after the first (sub-headers like "Amt." under "Withdrawal")
+            if dataStartIdx < pageCells.count {
+                let nextRow = pageCells[dataStartIdx]
+                let nextJoined = nextRow.map(\.text).joined(separator: " ").lowercased()
+                let isSubHeader = nextJoined.contains("amt") || nextJoined.contains("no.") || nextJoined.contains("chq")
+                let hasNoDate = parseDateCell(nextRow.first?.text ?? "") == nil
+                if isSubHeader && hasNoDate && nextRow.count <= currentLayout.columns.count {
+                    dataStartIdx += 1
+                }
+            }
+
+            var pageCandidateRows = 0
+            var pageParsedTxns = 0
 
             for i in dataStartIdx..<pageCells.count {
                 let row = pageCells[i]
@@ -362,7 +569,16 @@ actor StatementParser {
                 // Skip metadata rows
                 let joinedText = row.map(\.text).joined(separator: " ")
                 if isPageHeaderOrFooter(joinedText) || isSeparatorLine(joinedText)
-                    || looksLikeNonTransactionLine(joinedText) { continue }
+                    || looksLikeNonTransactionLine(joinedText) {
+                    skippedRows += 1
+                    continue
+                }
+                // Skip rows that look like repeated headers (contain 3+ header keywords)
+                let joinedLower = joinedText.lowercased()
+                if joinedLower.contains("narration") && joinedLower.contains("date") { skippedRows += 1; continue }
+                if joinedLower.contains("withdrawal") && joinedLower.contains("deposit") && joinedLower.contains("balance") { skippedRows += 1; continue }
+
+                pageCandidateRows += 1
 
                 // Map each cell to its column role by X-position
                 var dateStr = ""
@@ -397,9 +613,12 @@ actor StatementParser {
                         // Value date row (date + amounts, no meaningful narration) — merge amounts
                         if debitAmt == 0 && rowDebit > 0 { debitAmt = rowDebit }
                         if creditAmt == 0 && rowCredit > 0 { creditAmt = rowCredit }
+                        valueDateRows += 1
                     } else {
                         // New transaction
+                        let beforeCount = transactions.count
                         flush()
+                        if transactions.count > beforeCount { pageParsedTxns += 1 }
                         currentDate = date
                         currentDesc = rowDesc
                         debitAmt = rowDebit
@@ -410,10 +629,23 @@ actor StatementParser {
                     if hasNarration { currentDesc += " " + rowDesc }
                     if debitAmt == 0 && rowDebit > 0 { debitAmt = rowDebit }
                     if creditAmt == 0 && rowCredit > 0 { creditAmt = rowCredit }
+                    continuationRows += 1
                 }
             }
+
+            // Count the last pending transaction for this page's log
+            let beforeFlush = transactions.count
+            // Don't flush yet — it may continue onto the next page.
+            // But log what we have so far.
+            let pageNewTxns = transactions.count - txnCountBefore
+            logger.log("Page \(pageIdx + 1) candidate rows: \(pageCandidateRows)")
+            logger.log("Page \(pageIdx + 1) parsed transactions: \(pageNewTxns) (+ 1 pending)" )
         }
+
+        // Flush last transaction
         flush()
+
+        logger.log("Position-aware totals: \(transactions.count) transactions, \(continuationRows) continuation rows merged, \(valueDateRows) value date rows merged, \(skippedRows) rows skipped")
 
         return transactions
     }
@@ -1037,7 +1269,7 @@ actor StatementParser {
             }
         }
 
-        return ParseResult(transactions: transactions, errors: errors, fileName: fileName, source: .csv)
+        return ParseResult(transactions: transactions, errors: errors, debugLog: [], fileName: fileName, source: .csv)
     }
 
     // MARK: - Line Parsing (Fallback)
