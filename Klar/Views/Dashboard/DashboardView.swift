@@ -80,11 +80,11 @@ struct DashboardView: View {
     }
 
     private var totalIncome: Double {
-        activeTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
+        activeTransactions.filter { $0.amount > 0 }.reduce(0) { $0 + $1.amount }
     }
 
     private var totalExpense: Double {
-        activeTransactions.filter { $0.type == .expense }.reduce(0) { $0 + abs($1.amount) }
+        activeTransactions.filter { $0.amount < 0 }.reduce(0) { $0 + abs($1.amount) }
     }
 
     private var totalBalance: Double {
@@ -103,7 +103,7 @@ struct DashboardView: View {
 
     private var categorySpend: [(String, Double)] {
         var dict: [String: Double] = [:]
-        for txn in activeTransactions where txn.type == .expense {
+        for txn in activeTransactions where txn.amount < 0 {
             dict[txn.category, default: 0] += abs(txn.amount)
         }
         return dict.sorted { $0.value > $1.value }

@@ -11,6 +11,8 @@ struct LedgerView: View {
     @State private var selectedTransactions: Set<UUID> = []
     @State private var showCategoryPicker = false
     @State private var filteredResults: [Transaction]?
+    @State private var showDeleteConfirmation = false
+    @State private var transactionToDelete: Transaction?
 
     private var displayTransactions: [Transaction] {
         filteredResults ?? Array(transactions)
@@ -123,6 +125,22 @@ struct LedgerView: View {
                                                 isSelectMode: isSelectMode,
                                                 isSelected: selectedTransactions.contains(transaction.id)
                                             )
+                                            .contextMenu {
+                                                Button(role: .destructive) {
+                                                    transactionToDelete = transaction
+                                                    showDeleteConfirmation = true
+                                                } label: {
+                                                    Label("Delete", systemImage: "trash")
+                                                }
+                                                Button {
+                                                    withAnimation {
+                                                        isSelectMode = true
+                                                        selectedTransactions.insert(transaction.id)
+                                                    }
+                                                } label: {
+                                                    Label("Select", systemImage: "checkmark.circle")
+                                                }
+                                            }
                                             .onTapGesture {
                                                 if isSelectMode {
                                                     toggleSelection(transaction.id)
@@ -168,6 +186,24 @@ struct LedgerView: View {
                 showCategoryPicker = false
                 isSelectMode = false
                 selectedTransactions.removeAll()
+            }
+        }
+        .alert("Delete Transaction", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                transactionToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let txn = transactionToDelete {
+                    withAnimation {
+                        modelContext.delete(txn)
+                        try? modelContext.save()
+                    }
+                    transactionToDelete = nil
+                }
+            }
+        } message: {
+            if let txn = transactionToDelete {
+                Text("Delete \(txn.merchant) (\(CurrencyHelper.formatSigned(txn.amount)))?")
             }
         }
     }
@@ -255,18 +291,44 @@ struct LedgerView: View {
         try? modelContext.save()
     }
 
+    private func deleteSelectedTransactions() {
+        for txn in transactions where selectedTransactions.contains(txn.id) {
+            modelContext.delete(txn)
+        }
+        try? modelContext.save()
+        selectedTransactions.removeAll()
+        withAnimation { isSelectMode = false }
+    }
+
     private var batchActionBar: some View {
         HStack {
             Text("\(selectedTransactions.count) Selected")
                 .font(KlarFonts.label(14))
                 .foregroundStyle(KlarColors.primary)
             Spacer()
-            Button("Change Category") {
+
+            Button {
+                deleteSelectedTransactions()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12))
+                    Text("Delete")
+                        .font(KlarFonts.label(13))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(KlarColors.negative)
+                .clipShape(Capsule())
+            }
+
+            Button("Category") {
                 showCategoryPicker = true
             }
             .font(KlarFonts.label(13))
             .foregroundStyle(.white)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background(KlarColors.primary)
             .clipShape(Capsule())

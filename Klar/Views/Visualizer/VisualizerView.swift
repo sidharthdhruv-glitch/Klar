@@ -85,12 +85,16 @@ struct VisualizerView: View {
     }
 
     private var totalIncome: Double {
-        selectedMonthTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
+        selectedMonthTransactions.filter { $0.amount > 0 }.reduce(0) { $0 + $1.amount }
+    }
+
+    private var totalExpense: Double {
+        selectedMonthTransactions.filter { $0.amount < 0 }.reduce(0) { $0 + abs($1.amount) }
     }
 
     private var categorySpend: [(String, Double)] {
         var dict: [String: Double] = [:]
-        for txn in selectedMonthTransactions where txn.type == .expense {
+        for txn in selectedMonthTransactions where txn.amount < 0 {
             dict[txn.category, default: 0] += abs(txn.amount)
         }
         return dict.sorted { $0.value > $1.value }
@@ -150,50 +154,50 @@ struct VisualizerView: View {
                         .padding(.horizontal, 20)
                     }
 
-                    // Cash Flow Sankey
+                    // Monthly Spending Gauge
                     KlarCard(dashedBorder: true) {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("CASH FLOW (\(selectedMonthShortName))")
+                            Text("MONTHLY BUDGET (\(selectedMonthShortName))")
                                 .font(KlarFonts.heading(18))
                                 .foregroundStyle(KlarColors.primary)
 
-                            if totalIncome > 0 && !categorySpend.isEmpty {
-                                let diagramHeight: CGFloat = CGFloat(categorySpend.count + (totalIncome > categorySpend.reduce(0) { $0 + $1.1 } ? 1 : 0)) * 34 + 50
-                                SankeyDiagram(
-                                    income: totalIncome,
-                                    categories: categorySpend.map { name, value in
-                                        SankeyNode(label: name, value: value, color: KlarColors.categoryColor(for: name))
+                            if !categorySpend.isEmpty {
+                                SpendingGauge(
+                                    spent: totalExpense,
+                                    budget: max(totalIncome, totalExpense),
+                                    segments: categorySpend.map { name, value in
+                                        SpendingGaugeSegment(label: name, value: value, color: KlarColors.categoryColor(for: name))
                                     }
                                 )
-                                .frame(height: max(diagramHeight, 200))
-                            } else if !categorySpend.isEmpty {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(categorySpend.prefix(6), id: \.0) { name, value in
-                                        HStack {
-                                            Circle()
-                                                .fill(KlarColors.categoryColor(for: name))
-                                                .frame(width: 8, height: 8)
-                                            Text(name)
-                                                .font(KlarFonts.body(13))
-                                                .foregroundStyle(KlarColors.primary)
-                                            Spacer()
-                                            Text(CurrencyHelper.format(-value))
-                                                .font(KlarFonts.label(13))
-                                                .monospacedDigit()
-                                                .foregroundStyle(KlarColors.negative)
-                                        }
-                                    }
-                                }
                             }
 
                             if totalIncome > 0 {
-                                Text("TOTAL INCOME (+\(CurrencyHelper.format(totalIncome)))")
-                                    .font(KlarFonts.label(12))
-                                    .foregroundStyle(KlarColors.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .center)
+                                HStack {
+                                    Image(systemName: "arrow.down.circle.fill")
+                                        .foregroundStyle(KlarColors.positive)
+                                        .font(.system(size: 14))
+                                    Text("INCOME")
+                                        .font(KlarFonts.label(11))
+                                        .foregroundStyle(KlarColors.secondary)
+                                    Text(CurrencyHelper.format(totalIncome))
+                                        .font(KlarFonts.label(13))
+                                        .monospacedDigit()
+                                        .foregroundStyle(KlarColors.positive)
+                                    Spacer()
+                                    let remaining = totalIncome - totalExpense
+                                    Image(systemName: "banknote")
+                                        .foregroundStyle(remaining >= 0 ? KlarColors.positive : KlarColors.negative)
+                                        .font(.system(size: 14))
+                                    Text("SAVED")
+                                        .font(KlarFonts.label(11))
+                                        .foregroundStyle(KlarColors.secondary)
+                                    Text(CurrencyHelper.format(remaining))
+                                        .font(KlarFonts.label(13))
+                                        .monospacedDigit()
+                                        .foregroundStyle(remaining >= 0 ? KlarColors.positive : KlarColors.negative)
+                                }
+                                .padding(.horizontal, 4)
                             }
-
-                            legendRow
                         }
                     }
                     .padding(.horizontal, 20)
@@ -254,24 +258,4 @@ struct VisualizerView: View {
         }
     }
 
-    private var legendRow: some View {
-        LazyVGrid(columns: [
-            GridItem(.flexible()),
-            GridItem(.flexible()),
-            GridItem(.flexible()),
-            GridItem(.flexible()),
-        ], spacing: 8) {
-            ForEach(categorySpend.prefix(8), id: \.0) { name, value in
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(KlarColors.categoryColor(for: name))
-                        .frame(width: 6, height: 6)
-                    Text(name.uppercased())
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(KlarColors.secondary)
-                        .lineLimit(1)
-                }
-            }
-        }
-    }
 }
