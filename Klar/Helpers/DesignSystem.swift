@@ -22,10 +22,10 @@ enum KlarColors {
     static let entertainment = Color(hex: "#E8A060")
     static let health = Color(hex: "#6BBF8A")
     static let finance = Color(hex: "#8E9FD0")
-    static let transport = Color(hex: "#D4CC60")
-    static let utilities = Color(hex: "#E090A8")
-    static let misc = Color(hex: "#D4C870")
-    static let food = Color(hex: "#A0B860")
+    static let transport = Color(hex: "#5BAFCF")
+    static let utilities = Color(hex: "#D64B8A")
+    static let misc = Color(hex: "#9B8EC2")
+    static let food = Color(hex: "#E07B5A")
     static let income = Color(hex: "#4A8C5C")
 
     static func categoryColor(for name: String) -> Color {

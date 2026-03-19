@@ -807,22 +807,33 @@ struct ScannerCameraView: UIViewControllerRepresentable {
         }
 
         func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFinishWith scan: VNDocumentCameraScan) {
-            var fullText = ""
+            // Capture images before dismissing (scan object may not be valid after dismiss)
+            var images: [CGImage] = []
             for i in 0..<scan.pageCount {
-                let image = scan.imageOfPage(at: i)
-                guard let cgImage = image.cgImage else { continue }
-                let request = VNRecognizeTextRequest()
-                request.recognitionLevel = .accurate
-                let handler = VNImageRequestHandler(cgImage: cgImage)
-                try? handler.perform([request])
-                if let observations = request.results {
-                    let pageText = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
-                    fullText += pageText + "\n"
+                if let cgImage = scan.imageOfPage(at: i).cgImage {
+                    images.append(cgImage)
                 }
             }
-            let result = fullText
-            controller.dismiss(animated: true) {
-                self.onScan(result)
+
+            controller.dismiss(animated: true) { [self] in
+                // Run OCR on background thread to avoid blocking UI
+                DispatchQueue.global(qos: .userInitiated).async {
+                    var fullText = ""
+                    for cgImage in images {
+                        let request = VNRecognizeTextRequest()
+                        request.recognitionLevel = .accurate
+                        let handler = VNImageRequestHandler(cgImage: cgImage)
+                        try? handler.perform([request])
+                        if let observations = request.results {
+                            let pageText = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+                            fullText += pageText + "\n"
+                        }
+                    }
+                    let result = fullText
+                    DispatchQueue.main.async {
+                        self.onScan(result)
+                    }
+                }
             }
         }
 

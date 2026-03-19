@@ -62,7 +62,9 @@ struct BurnRateView: View {
         .background(KlarColors.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
-        .onAppear {
+        .task(id: rate) {
+            barProgress = 0
+            try? await Task.sleep(nanoseconds: 100_000_000)
             withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
                 barProgress = CGFloat(rate)
             }
