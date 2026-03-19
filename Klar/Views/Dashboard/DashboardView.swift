@@ -4,11 +4,15 @@ import SwiftData
 struct DashboardView: View {
     @Query(sort: \Transaction.date, order: .reverse) private var transactions: [Transaction]
     @Query private var accounts: [Account]
+    @Query private var rules: [Rule]
 
     @AppStorage("userName") private var userName = "User"
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 50000
 
     @State private var selectedMonthOffset: Int = 0
+    @State private var showAddTransaction = false
+    @State private var showOCRScanner = false
+    @Environment(\.modelContext) private var modelContext
 
     private var availableMonths: [(month: Int, year: Int, label: String)] {
         let cal = Calendar.current
@@ -89,7 +93,9 @@ struct DashboardView: View {
 
     private var categorySpend: [(String, Double)] {
         var dict: [String: Double] = [:]
-        for txn in activeTransactions where txn.type == .expense {
+        for txn in activeTransactions {
+            // Skip the "Income" category — breakdown should focus on spending categories
+            guard txn.category != "Income" else { continue }
             dict[txn.category, default: 0] += abs(txn.amount)
         }
         return dict.sorted { $0.value > $1.value }
@@ -119,14 +125,18 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 24) {
                 // Header
                 HStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(KlarColors.accent.opacity(0.15))
-                        .frame(width: 44, height: 44)
-                        .overlay(
-                            Image(systemName: "creditcard.fill")
-                                .font(.system(size: 18))
-                                .foregroundStyle(KlarColors.accent)
-                        )
+                    Button {
+                        showOCRScanner = true
+                    } label: {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(KlarColors.accent.opacity(0.15))
+                            .frame(width: 44, height: 44)
+                            .overlay(
+                                Image(systemName: "doc.text.viewfinder")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(KlarColors.accent)
+                            )
+                    }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("HELLO, \(userName.uppercased())")
@@ -140,14 +150,18 @@ struct DashboardView: View {
 
                     Spacer()
 
-                    Circle()
-                        .stroke(KlarColors.searchHighlight, lineWidth: 2)
-                        .frame(width: 40, height: 40)
-                        .overlay(
-                            Image(systemName: "plus")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(KlarColors.searchHighlight)
-                        )
+                    Button {
+                        showAddTransaction = true
+                    } label: {
+                        Circle()
+                            .stroke(KlarColors.searchHighlight, lineWidth: 2)
+                            .frame(width: 40, height: 40)
+                            .overlay(
+                                Image(systemName: "plus")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(KlarColors.searchHighlight)
+                            )
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
@@ -263,6 +277,20 @@ struct DashboardView: View {
         .background(KlarColors.background)
         .onAppear {
             autoSelectMonth()
+        }
+        .sheet(isPresented: $showAddTransaction) {
+            AddTransactionSheet { transaction in
+                modelContext.insert(transaction)
+                try? modelContext.save()
+                showAddTransaction = false
+            }
+        }
+        .sheet(isPresented: $showOCRScanner) {
+            OCRScannerSheet(rules: Array(rules)) { transaction in
+                modelContext.insert(transaction)
+                try? modelContext.save()
+                showOCRScanner = false
+            }
         }
     }
 
