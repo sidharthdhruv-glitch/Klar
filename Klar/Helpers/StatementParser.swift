@@ -79,6 +79,14 @@ actor StatementParser {
         // Try ALL strategies and pick the one with the most results
         var bestTransactions: [ParsedRow] = []
 
+        // Strategy 0: Position-aware table extraction (best for multi-column bank statements)
+        // Uses character bounding boxes to reconstruct the actual table layout with
+        // proper column separation, avoiding PDFKit's .string column-merging issues.
+        let positionAware = parsePositionAware(document: document)
+        if positionAware.count > bestTransactions.count {
+            bestTransactions = positionAware
+        }
+
         // Strategy 1: Column-aware parsing on full text
         let columnAware = parseColumnAware(lines: lines)
         if columnAware.count > bestTransactions.count {
@@ -118,6 +126,296 @@ actor StatementParser {
         }
 
         return ParseResult(transactions: bestTransactions, errors: errors, fileName: fileName, source: .pdf)
+    }
+
+    // MARK: - Position-Aware Table Extraction
+
+    /// A cell extracted from a PDF page with its horizontal position preserved.
+    /// The xCenter allows mapping data cells to the correct column even when
+    /// some cells in a row are empty (which shifts array indices).
+    private struct PageCell {
+        let text: String
+        let xCenter: CGFloat
+    }
+
+    /// Defines the role and X-position of each column detected from the table header.
+    private struct ColumnLayout {
+        enum Role { case date, description, debit, credit, balance, other }
+        struct Column {
+            let role: Role
+            let xCenter: CGFloat
+        }
+        let columns: [Column]
+
+        /// Maps a cell's X-center to the nearest column role.
+        /// Returns .other if the nearest column is more than 80pt away (likely noise).
+        func assignRole(for xCenter: CGFloat) -> Role {
+            var best: Column?
+            var bestDist: CGFloat = .greatestFiniteMagnitude
+            for col in columns {
+                let dist = abs(col.xCenter - xCenter)
+                if dist < bestDist { bestDist = dist; best = col }
+            }
+            guard bestDist < 80 else { return .other }
+            return best?.role ?? .other
+        }
+    }
+
+    /// Extracts table cells from a PDF page using character bounding boxes.
+    /// Groups characters into rows by Y-coordinate and cells by X-gaps,
+    /// preserving each cell's horizontal position for column mapping.
+    private func extractPageCells(_ page: PDFPage) -> [[PageCell]] {
+        let charCount = page.numberOfCharacters
+        guard charCount > 0, let pageStr = page.string else { return [] }
+
+        let chars = Array(pageStr)
+        let effectiveCount = min(charCount, chars.count)
+        guard effectiveCount > 0 else { return [] }
+
+        // Collect character positions (skip newlines and zero-size bounds)
+        struct CP { let char: Character; let midY: CGFloat; let x: CGFloat; let maxX: CGFloat }
+        var positions: [CP] = []
+
+        for i in 0..<effectiveCount {
+            let bounds = page.characterBounds(at: i)
+            guard bounds.width > 0, bounds.height > 0 else { continue }
+            let ch = chars[i]
+            guard !ch.isNewline else { continue }
+            positions.append(CP(char: ch, midY: bounds.midY, x: bounds.minX, maxX: bounds.maxX))
+        }
+        guard !positions.isEmpty else { return [] }
+
+        // Sort: top-to-bottom (descending Y in PDF coords), then left-to-right
+        positions.sort { abs($0.midY - $1.midY) > 3 ? $0.midY > $1.midY : $0.x < $1.x }
+
+        // Group into rows by Y proximity (3pt tolerance)
+        var rows: [[CP]] = []
+        var rowBuf: [CP] = [positions[0]]
+        var rowY = positions[0].midY
+        for i in 1..<positions.count {
+            if abs(positions[i].midY - rowY) <= 3 {
+                rowBuf.append(positions[i])
+            } else {
+                rows.append(rowBuf.sorted { $0.x < $1.x })
+                rowBuf = [positions[i]]
+                rowY = positions[i].midY
+            }
+        }
+        rows.append(rowBuf.sorted { $0.x < $1.x })
+
+        // Build cells: gap > 8pt between characters = column break
+        var result: [[PageCell]] = []
+        for row in rows {
+            guard !row.isEmpty else { continue }
+            var cells: [PageCell] = []
+            var buf = String(row[0].char)
+            var cellXStart = row[0].x
+            var prevMaxX = row[0].maxX
+
+            for j in 1..<row.count {
+                let gap = row[j].x - prevMaxX
+                if gap > 8 {
+                    let t = buf.trimmingCharacters(in: .whitespaces)
+                    if !t.isEmpty {
+                        cells.append(PageCell(text: t, xCenter: (cellXStart + prevMaxX) / 2))
+                    }
+                    buf = ""
+                    cellXStart = row[j].x
+                } else if gap > 1.5 {
+                    buf += " "
+                }
+                buf.append(row[j].char)
+                prevMaxX = row[j].maxX
+            }
+            let t = buf.trimmingCharacters(in: .whitespaces)
+            if !t.isEmpty {
+                cells.append(PageCell(text: t, xCenter: (cellXStart + prevMaxX) / 2))
+            }
+            if !cells.isEmpty { result.append(cells) }
+        }
+
+        return result
+    }
+
+    /// Detects column roles from a header row by matching keywords to known
+    /// bank statement column names. Uses X-center positions for subsequent
+    /// data row mapping.
+    private func detectColumnLayout(headerCells: [PageCell]) -> ColumnLayout? {
+        var columns: [ColumnLayout.Column] = []
+
+        for cell in headerCells {
+            let l = cell.text.lowercased()
+            let role: ColumnLayout.Role
+
+            if (l.contains("date") || l == "dt") && !l.contains("value") {
+                // Only assign first date column (skip "Value Date")
+                if !columns.contains(where: { $0.role == .date }) {
+                    role = .date
+                } else {
+                    role = .other
+                }
+            } else if l.contains("narration") || l.contains("description") || l.contains("particular") {
+                role = .description
+            } else if l.contains("withdrawal") || (l.contains("debit") && !l.contains("credit"))
+                        || l.range(of: #"^\s*dr\.?\s*$"#, options: .regularExpression) != nil {
+                role = .debit
+            } else if l.contains("deposit") || (l.contains("credit") && !l.contains("debit"))
+                        || l.range(of: #"^\s*cr\.?\s*$"#, options: .regularExpression) != nil {
+                role = .credit
+            } else if l.contains("balance") || l.contains("closing") {
+                role = .balance
+            } else {
+                role = .other
+            }
+
+            columns.append(ColumnLayout.Column(role: role, xCenter: cell.xCenter))
+        }
+
+        // Must have at least a date column
+        guard columns.contains(where: { $0.role == .date }) else { return nil }
+        return ColumnLayout(columns: columns)
+    }
+
+    /// Parses a date string using all known date formats.
+    private func parseDateCell(_ str: String) -> Date? {
+        let trimmed = str.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        for formatter in Self.dateFormatters {
+            if let date = formatter.date(from: trimmed) {
+                return fixCentury(date)
+            }
+        }
+        return nil
+    }
+
+    /// Parses an amount string, handling Indian format (1,57,370.00) and currency symbols.
+    private func parseAmountCell(_ str: String) -> Double {
+        let cleaned = str.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: "")
+            .replacingOccurrences(of: "₹", with: "")
+            .replacingOccurrences(of: "Rs.", with: "")
+            .replacingOccurrences(of: "INR", with: "")
+            .replacingOccurrences(of: " ", with: "")
+        return Double(cleaned) ?? 0
+    }
+
+    /// Main position-aware parsing strategy. Processes each page by:
+    /// 1. Extracting cells with X-position info using character bounding boxes
+    /// 2. Detecting column layout from the header row
+    /// 3. Mapping each data cell to its column by X-position proximity
+    /// 4. Building transactions from the properly separated columns
+    ///
+    /// This avoids the fundamental problem of PDFPage.string merging adjacent
+    /// columns, which causes most transaction loss on multi-column bank statements.
+    private func parsePositionAware(document: PDFDocument) -> [ParsedRow] {
+        var transactions: [ParsedRow] = []
+        var layout: ColumnLayout?
+
+        // Transaction accumulator — persists across pages for page-boundary spanning
+        var currentDate: Date?
+        var currentDesc = ""
+        var debitAmt: Double = 0
+        var creditAmt: Double = 0
+
+        func flush() {
+            guard let date = currentDate else { return }
+            let amount: Double
+            let type: TransactionType
+            if creditAmt > 0.001 { amount = creditAmt; type = .income }
+            else if debitAmt > 0.001 { amount = debitAmt; type = .expense }
+            else { currentDate = nil; currentDesc = ""; debitAmt = 0; creditAmt = 0; return }
+
+            var desc = cleanDescription(currentDesc)
+            if desc.isEmpty { desc = "Transaction" }
+            transactions.append(ParsedRow(date: date, description: desc, amount: amount, type: type))
+            currentDate = nil; currentDesc = ""; debitAmt = 0; creditAmt = 0
+        }
+
+        for pageIdx in 0..<document.pageCount {
+            guard let page = document.page(at: pageIdx) else { continue }
+            let pageCells = extractPageCells(page)
+            guard !pageCells.isEmpty else { continue }
+
+            // Detect header row on this page (headers repeat on each page in many statements)
+            var dataStartIdx = 0
+            for (i, row) in pageCells.enumerated() {
+                let joined = row.map(\.text).joined(separator: " ").lowercased()
+                let hasDate = joined.contains("date")
+                let hasDesc = joined.contains("narration") || joined.contains("description") || joined.contains("particular")
+                let hasAmt = joined.contains("withdrawal") || joined.contains("deposit")
+                              || joined.contains("debit") || joined.contains("credit")
+
+                if hasDate && (hasDesc || hasAmt) {
+                    if let detected = detectColumnLayout(headerCells: row) {
+                        layout = detected
+                        dataStartIdx = i + 1
+                    }
+                    break
+                }
+            }
+
+            guard let currentLayout = layout else { continue }
+
+            for i in dataStartIdx..<pageCells.count {
+                let row = pageCells[i]
+
+                // Skip metadata rows
+                let joinedText = row.map(\.text).joined(separator: " ")
+                if isPageHeaderOrFooter(joinedText) || isSeparatorLine(joinedText)
+                    || looksLikeNonTransactionLine(joinedText) { continue }
+
+                // Map each cell to its column role by X-position
+                var dateStr = ""
+                var descParts: [String] = []
+                var rowDebit: Double = 0
+                var rowCredit: Double = 0
+
+                for cell in row {
+                    let role = currentLayout.assignRole(for: cell.xCenter)
+                    switch role {
+                    case .date:
+                        dateStr = cell.text
+                    case .description:
+                        descParts.append(cell.text)
+                    case .debit:
+                        let v = parseAmountCell(cell.text)
+                        if v > 0 { rowDebit = v }
+                    case .credit:
+                        let v = parseAmountCell(cell.text)
+                        if v > 0 { rowCredit = v }
+                    case .balance, .other:
+                        break
+                    }
+                }
+
+                let rowDate = parseDateCell(dateStr)
+                let rowDesc = descParts.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+                let hasNarration = rowDesc.range(of: #"[A-Za-z]{2,}"#, options: .regularExpression) != nil
+
+                if let date = rowDate {
+                    if !hasNarration && currentDate != nil {
+                        // Value date row (date + amounts, no meaningful narration) — merge amounts
+                        if debitAmt == 0 && rowDebit > 0 { debitAmt = rowDebit }
+                        if creditAmt == 0 && rowCredit > 0 { creditAmt = rowCredit }
+                    } else {
+                        // New transaction
+                        flush()
+                        currentDate = date
+                        currentDesc = rowDesc
+                        debitAmt = rowDebit
+                        creditAmt = rowCredit
+                    }
+                } else if currentDate != nil {
+                    // Continuation line — append narration, pick up amounts if missing
+                    if hasNarration { currentDesc += " " + rowDesc }
+                    if debitAmt == 0 && rowDebit > 0 { debitAmt = rowDebit }
+                    if creditAmt == 0 && rowCredit > 0 { creditAmt = rowCredit }
+                }
+            }
+        }
+        flush()
+
+        return transactions
     }
 
     // MARK: - Text Preprocessing
