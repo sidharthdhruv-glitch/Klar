@@ -7,7 +7,8 @@ import SwiftData
 actor StatementParser {
 
     // MARK: - Parsed Row
-    struct ParsedRow: Sendable {
+    struct ParsedRow: Sendable, Identifiable {
+        let id = UUID()
         let date: Date
         let description: String
         let amount: Double

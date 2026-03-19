@@ -346,8 +346,8 @@ struct ImportHubView: View {
                         existing: Array(existingTransactions)
                     )
 
-                    let duplicateDescs = Set(duplicates.map { $0.new.description })
-                    let nonDuplicates = result.transactions.filter { !duplicateDescs.contains($0.description) }
+                    let duplicateIDs = Set(duplicates.map { $0.new.id })
+                    let nonDuplicates = result.transactions.filter { !duplicateIDs.contains($0.id) }
 
                     currentImportSource = result.source
                     pendingTransactions.append(contentsOf: nonDuplicates)
