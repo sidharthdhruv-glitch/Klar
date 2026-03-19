@@ -12,87 +12,136 @@ struct SankeyDiagram: View {
     let categories: [SankeyNode]
     @State private var animationProgress: CGFloat = 0
 
+    private var totalSpend: Double {
+        categories.reduce(0.0) { $0 + $1.value }
+    }
+
+    private var savings: Double {
+        max(income - totalSpend, 0)
+    }
+
     var body: some View {
-        Canvas { context, size in
-            let leftX: CGFloat = 60
-            let rightX: CGFloat = size.width - 60
-            let totalHeight = size.height - 40
-            let topY: CGFloat = 20
+        VStack(spacing: 0) {
+            // Income bar at top
+            incomeBar
+                .padding(.bottom, 16)
 
-            let total = categories.reduce(0.0) { $0 + $1.value }
-            guard total > 0 else { return }
+            // Flow connections + category bars
+            GeometryReader { geo in
+                let barWidth: CGFloat = geo.size.width
+                let availableHeight = geo.size.height
 
-            // Left bar (income)
-            let leftBarRect = CGRect(x: leftX - 18, y: topY, width: 36, height: totalHeight)
-            context.fill(Path(roundedRect: leftBarRect, cornerRadius: 6), with: .color(KlarColors.positive))
+                ZStack(alignment: .top) {
+                    // Category rows
+                    VStack(spacing: 6) {
+                        ForEach(Array(categories.enumerated()), id: \.element.id) { index, node in
+                            let proportion = income > 0 ? node.value / income : 0
+                            let nodeWidth = max(barWidth * CGFloat(proportion) * animationProgress, 0)
 
-            // Left label
-            let incomeLabel = Text("INCOME")
-                .font(.system(size: 8, weight: .black))
-                .foregroundColor(KlarColors.positive)
-            context.draw(incomeLabel, at: CGPoint(x: leftX - 18, y: topY + totalHeight + 14))
+                            HStack(spacing: 10) {
+                                // Category bar
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(KlarColors.barTrack)
+                                        .frame(height: 28)
 
-            let incomeAmount = Text(CurrencyHelper.formatCompact(income))
-                .font(.system(size: 7, weight: .semibold))
-                .foregroundColor(KlarColors.positive)
-            context.draw(incomeAmount, at: CGPoint(x: leftX - 18, y: topY + totalHeight + 24))
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [node.color, node.color.opacity(0.7)],
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            )
+                                        )
+                                        .frame(width: nodeWidth, height: 28)
+                                }
+                                .frame(maxWidth: .infinity)
 
-            // Right bars + curves
-            var currentY: CGFloat = topY
-            var leftCurrentY: CGFloat = topY
+                                // Label + amount
+                                VStack(alignment: .trailing, spacing: 1) {
+                                    Text(node.label.uppercased())
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(node.color)
+                                        .lineLimit(1)
+                                    Text(CurrencyHelper.formatCompact(node.value))
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .monospacedDigit()
+                                        .foregroundStyle(KlarColors.secondary)
+                                }
+                                .frame(width: 72, alignment: .trailing)
+                            }
+                        }
 
-            for node in categories {
-                let proportion = CGFloat(node.value / total)
-                let segmentHeight = totalHeight * proportion
-                let leftSegmentHeight = totalHeight * proportion
+                        // Savings row (if any)
+                        if savings > 0 {
+                            let proportion = savings / income
+                            let nodeWidth = max(barWidth * CGFloat(proportion) * animationProgress, 0)
 
-                // Right bar
-                let rightBarRect = CGRect(x: rightX - 18, y: currentY, width: 36, height: segmentHeight)
-                context.fill(Path(roundedRect: rightBarRect, cornerRadius: 4), with: .color(node.color))
+                            HStack(spacing: 10) {
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(KlarColors.barTrack)
+                                        .frame(height: 28)
 
-                // Right label
-                let labelText = Text(node.label.uppercased())
-                    .font(.system(size: 8, weight: .black))
-                    .foregroundColor(node.color)
-                context.draw(labelText, at: CGPoint(x: rightX + 30, y: currentY + segmentHeight / 2 - 6))
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [KlarColors.positive, KlarColors.positive.opacity(0.6)],
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            )
+                                        )
+                                        .frame(width: nodeWidth, height: 28)
+                                }
+                                .frame(maxWidth: .infinity)
 
-                let amountText = Text(CurrencyHelper.formatCompact(node.value))
-                    .font(.system(size: 7, weight: .semibold))
-                    .foregroundColor(node.color)
-                context.draw(amountText, at: CGPoint(x: rightX + 30, y: currentY + segmentHeight / 2 + 6))
-
-                // Bezier curve connection
-                var path = Path()
-                let startY = leftCurrentY + leftSegmentHeight / 2
-                let endY = currentY + segmentHeight / 2
-
-                path.move(to: CGPoint(x: leftX + 18, y: startY - leftSegmentHeight / 2))
-                let cp1x = leftX + (rightX - leftX) * 0.4
-                let cp2x = leftX + (rightX - leftX) * 0.6
-
-                path.addCurve(
-                    to: CGPoint(x: rightX - 18, y: endY - segmentHeight / 2),
-                    control1: CGPoint(x: cp1x, y: startY - leftSegmentHeight / 2),
-                    control2: CGPoint(x: cp2x, y: endY - segmentHeight / 2)
-                )
-                path.addLine(to: CGPoint(x: rightX - 18, y: endY + segmentHeight / 2))
-                path.addCurve(
-                    to: CGPoint(x: leftX + 18, y: startY + leftSegmentHeight / 2),
-                    control1: CGPoint(x: cp2x, y: endY + segmentHeight / 2),
-                    control2: CGPoint(x: cp1x, y: startY + leftSegmentHeight / 2)
-                )
-                path.closeSubpath()
-
-                context.fill(path, with: .color(node.color.opacity(0.3 * animationProgress)))
-
-                currentY += segmentHeight
-                leftCurrentY += leftSegmentHeight
+                                VStack(alignment: .trailing, spacing: 1) {
+                                    Text("SAVED")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(KlarColors.positive)
+                                    Text(CurrencyHelper.formatCompact(savings))
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .monospacedDigit()
+                                        .foregroundStyle(KlarColors.secondary)
+                                }
+                                .frame(width: 72, alignment: .trailing)
+                            }
+                        }
+                    }
+                }
             }
         }
         .onAppear {
-            withAnimation(.easeInOut(duration: 1.5)) {
+            withAnimation(.spring(response: 0.9, dampingFraction: 0.8)) {
                 animationProgress = 1.0
             }
+        }
+    }
+
+    private var incomeBar: some View {
+        HStack(spacing: 10) {
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(
+                        LinearGradient(
+                            colors: [KlarColors.positive, KlarColors.positive.opacity(0.7)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(height: 34)
+                    .frame(maxWidth: .infinity)
+
+                Text("  INCOME")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(.white)
+            }
+
+            Text(CurrencyHelper.formatCompact(income))
+                .font(.system(size: 12, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(KlarColors.positive)
+                .frame(width: 72, alignment: .trailing)
         }
     }
 }

@@ -7,7 +7,10 @@ struct ImportHubView: View {
     @Query private var rules: [Rule]
     @Query(sort: \Transaction.date, order: .reverse) private var existingTransactions: [Transaction]
 
+    @Query private var accounts: [Account]
+
     @State private var accountName = ""
+    @State private var selectedAccountType: AccountType = .savings
     @State private var uploads: [UploadEntry] = []
     @State private var showDocumentPicker = false
     @State private var isDragTargeted = false
@@ -67,6 +70,32 @@ struct ImportHubView: View {
                             .padding(14)
                             .background(KlarColors.surfaceElevated)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                        // Account type picker
+                        HStack(spacing: 0) {
+                            ForEach(AccountType.allCases, id: \.self) { type in
+                                Button {
+                                    withAnimation(.spring(response: 0.3)) {
+                                        selectedAccountType = type
+                                    }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: type == .savings ? "banknote" : type == .credit ? "creditcard" : "wallet.pass")
+                                            .font(.system(size: 10))
+                                        Text(type.rawValue.uppercased())
+                                            .font(KlarFonts.label(11))
+                                            .tracking(0.5)
+                                    }
+                                    .foregroundStyle(selectedAccountType == type ? .white : KlarColors.secondary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(selectedAccountType == type ? KlarColors.primary : Color.clear)
+                                    .clipShape(Capsule())
+                                }
+                            }
+                        }
+                        .background(KlarColors.surfaceElevated)
+                        .clipShape(Capsule())
 
                         Text("Labels where each transaction came from.")
                             .font(KlarFonts.label(11))
@@ -390,11 +419,21 @@ struct ImportHubView: View {
     }
 
     // MARK: - Transaction Insertion
+    private func ensureAccountExists(name: String) {
+        let accountName = name.isEmpty ? "Imported" : name
+        if !accounts.contains(where: { $0.name == accountName }) {
+            let account = Account(name: accountName, type: selectedAccountType, balance: 0)
+            modelContext.insert(account)
+        }
+    }
+
     private func addSingleTransaction(_ row: StatementParser.ParsedRow, at index: Int) {
         let rulesArray = Array(rules)
         let merchant = AutoCategorizer.extractMerchant(from: row.description)
         let category = AutoCategorizer.categorize(description: row.description, rules: rulesArray)
         let account = currentParsingAccount.isEmpty ? "Imported" : currentParsingAccount
+
+        ensureAccountExists(name: account)
 
         let transaction = Transaction(
             date: row.date,
@@ -415,6 +454,8 @@ struct ImportHubView: View {
     private func addAllPendingTransactions() {
         let rulesArray = Array(rules)
         let account = currentParsingAccount.isEmpty ? "Imported" : currentParsingAccount
+
+        ensureAccountExists(name: account)
 
         for row in pendingTransactions {
             let merchant = AutoCategorizer.extractMerchant(from: row.description)

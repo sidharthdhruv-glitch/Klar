@@ -88,14 +88,22 @@ struct DashboardView: View {
     }
 
     private var totalBalance: Double {
+        // Compute all-time balance per account, then sum
+        // This reflects actual account balances, not just the selected month
+        var accountBalances: [String: Double] = [:]
+        for txn in transactions {
+            accountBalances[txn.account, default: 0] += txn.amount
+        }
+        return accountBalances.values.reduce(0, +)
+    }
+
+    private var monthNetFlow: Double {
         totalIncome - totalExpense
     }
 
     private var categorySpend: [(String, Double)] {
         var dict: [String: Double] = [:]
-        for txn in activeTransactions {
-            // Skip the "Income" category — breakdown should focus on spending categories
-            guard txn.category != "Income" else { continue }
+        for txn in activeTransactions where txn.type == .expense {
             dict[txn.category, default: 0] += abs(txn.amount)
         }
         return dict.sorted { $0.value > $1.value }
@@ -104,6 +112,19 @@ struct DashboardView: View {
     private var burnRate: Double {
         guard monthlyBudget > 0 else { return 0 }
         return totalExpense / monthlyBudget
+    }
+
+    private var accountBalances: [(name: String, type: AccountType, balance: Double)] {
+        // Compute balance per account from all transactions
+        var balances: [String: Double] = [:]
+        for txn in transactions {
+            balances[txn.account, default: 0] += txn.amount
+        }
+        // Match account types from Account model, default to .savings
+        let accountTypeMap = Dictionary(uniqueKeysWithValues: accounts.map { ($0.name, $0.type) })
+        return balances.map { name, balance in
+            (name: name, type: accountTypeMap[name] ?? .savings, balance: balance)
+        }.sorted { abs($0.balance) > abs($1.balance) }
     }
 
     private var weeklySpend: [Double] {
@@ -205,7 +226,7 @@ struct DashboardView: View {
 
                     // Total Balance Card
                     KlarCard(dashedBorder: true) {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Text("TOTAL BALANCE")
                                     .font(KlarFonts.heading(20))
@@ -215,9 +236,6 @@ struct DashboardView: View {
                                     Text("ALL ACCOUNTS")
                                         .font(KlarFonts.label(11))
                                         .foregroundStyle(KlarColors.secondary)
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(KlarColors.secondary)
                                 }
                             }
 
@@ -225,15 +243,40 @@ struct DashboardView: View {
                                 AnimatedNumber(
                                     value: totalBalance,
                                     font: KlarFonts.display(28),
-                                    color: KlarColors.primary
+                                    color: totalBalance >= 0 ? KlarColors.primary : KlarColors.negative
                                 )
 
-                                if totalBalance != 0 {
-                                    let pct = totalIncome > 0 ? ((totalBalance) / totalIncome) * 100 : 0
-                                    Text(String(format: "%+.1f%%", pct))
-                                        .font(KlarFonts.label(13))
-                                        .foregroundStyle(KlarColors.positive)
+                                if monthNetFlow != 0 {
+                                    Text(CurrencyHelper.formatSigned(monthNetFlow))
+                                        .font(KlarFonts.label(12))
+                                        .foregroundStyle(monthNetFlow >= 0 ? KlarColors.positive : KlarColors.negative)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background((monthNetFlow >= 0 ? KlarColors.positive : KlarColors.negative).opacity(0.1))
+                                        .clipShape(Capsule())
                                 }
+                            }
+
+                            // Per-account balances
+                            if !accountBalances.isEmpty {
+                                VStack(spacing: 6) {
+                                    ForEach(accountBalances, id: \.name) { item in
+                                        HStack(spacing: 8) {
+                                            Image(systemName: item.type == .savings ? "banknote" : item.type == .credit ? "creditcard" : "wallet.pass")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(KlarColors.secondary)
+                                            Text(item.name.uppercased())
+                                                .font(KlarFonts.label(11))
+                                                .foregroundStyle(KlarColors.secondary)
+                                            Spacer()
+                                            Text(CurrencyHelper.format(item.balance))
+                                                .font(KlarFonts.label(12))
+                                                .monospacedDigit()
+                                                .foregroundStyle(item.balance >= 0 ? KlarColors.primary : KlarColors.negative)
+                                        }
+                                    }
+                                }
+                                .padding(.top, 4)
                             }
                         }
                     }
@@ -263,9 +306,9 @@ struct DashboardView: View {
                     .padding(.horizontal, 20)
 
                     // Account Snapshots
-                    if !accounts.isEmpty {
-                        AccountSnapshots(
-                            accounts: Array(accounts),
+                    if !accountBalances.isEmpty {
+                        AccountSnapshotsFromTransactions(
+                            accountBalances: accountBalances,
                             weeklyData: weeklySpend
                         )
                     }

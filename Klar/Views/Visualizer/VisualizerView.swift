@@ -158,13 +158,14 @@ struct VisualizerView: View {
                                 .foregroundStyle(KlarColors.primary)
 
                             if totalIncome > 0 && !categorySpend.isEmpty {
+                                let diagramHeight: CGFloat = CGFloat(categorySpend.count + (totalIncome > categorySpend.reduce(0) { $0 + $1.1 } ? 1 : 0)) * 34 + 50
                                 SankeyDiagram(
                                     income: totalIncome,
                                     categories: categorySpend.map { name, value in
                                         SankeyNode(label: name, value: value, color: KlarColors.categoryColor(for: name))
                                     }
                                 )
-                                .frame(height: 240)
+                                .frame(height: max(diagramHeight, 200))
                             } else if !categorySpend.isEmpty {
                                 VStack(alignment: .leading, spacing: 8) {
                                     ForEach(categorySpend.prefix(6), id: \.0) { name, value in
