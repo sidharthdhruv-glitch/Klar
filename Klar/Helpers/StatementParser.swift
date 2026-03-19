@@ -1203,7 +1203,7 @@ struct AutoCategorizer {
 
 struct DuplicateDetector {
     /// Find potential duplicates among existing transactions.
-    /// Two transactions are duplicates if they have the same date, similar amount, and similar merchant.
+    /// Requires exact date match AND exact amount match AND meaningful description overlap.
     static func findDuplicates(
         newTransactions: [StatementParser.ParsedRow],
         existing: [Transaction]
@@ -1214,10 +1214,30 @@ struct DuplicateDetector {
             for oldTxn in existing {
                 let sameDate = Calendar.current.isDate(newTxn.date, inSameDayAs: oldTxn.date)
                 let sameAmount = abs(newTxn.amount - abs(oldTxn.amount)) < 0.01
-                let similarDesc = newTxn.description.lowercased().contains(oldTxn.merchant.lowercased()) ||
-                                  oldTxn.merchant.lowercased().contains(newTxn.description.lowercased().prefix(5))
 
-                if sameDate && sameAmount && similarDesc {
+                guard sameDate && sameAmount else { continue }
+
+                // Require meaningful description similarity (at least 5-char merchant match)
+                let newDesc = newTxn.description.lowercased()
+                let oldMerchant = oldTxn.merchant.lowercased()
+
+                let similarDesc: Bool
+                if oldMerchant.count >= 5 {
+                    similarDesc = newDesc.contains(oldMerchant)
+                } else if oldMerchant.count >= 3 {
+                    // Short merchants: check if the notes/description also match
+                    let oldNotes = (oldTxn.notes ?? "").lowercased()
+                    similarDesc = newDesc.contains(oldMerchant) && (
+                        oldNotes.isEmpty ||
+                        newDesc.prefix(20) == oldNotes.prefix(20)
+                    )
+                } else {
+                    // Very short merchant name: require exact match on first 15 chars of description
+                    let oldNotes = (oldTxn.notes ?? "").lowercased()
+                    similarDesc = !oldNotes.isEmpty && newDesc.prefix(15) == oldNotes.prefix(15)
+                }
+
+                if similarDesc {
                     duplicates.append((newTxn, oldTxn))
                     break
                 }

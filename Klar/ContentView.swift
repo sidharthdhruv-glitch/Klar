@@ -7,7 +7,7 @@ struct ContentView: View {
     @State private var hasSeeded = false
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             Group {
                 switch selectedTab {
                 case .pulse:
@@ -25,7 +25,22 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
 
-            KlarTabBar(selectedTab: $selectedTab)
+            VStack(spacing: 0) {
+                // Gradient fade above tab bar
+                LinearGradient(
+                    colors: [
+                        KlarColors.background.opacity(0),
+                        KlarColors.background.opacity(0.6),
+                        KlarColors.background
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 40)
+                .allowsHitTesting(false)
+
+                KlarTabBar(selectedTab: $selectedTab)
+            }
         }
         .ignoresSafeArea(.keyboard)
         .background(KlarColors.background)
