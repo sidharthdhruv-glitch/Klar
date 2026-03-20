@@ -5,13 +5,8 @@ import Charts
 struct VisualizerView: View {
     @Query(sort: \Transaction.date, order: .reverse) private var transactions: [Transaction]
     @Query private var subscriptions: [Subscription]
+    @AppStorage("monthlyBudget") private var monthlyBudget: Double = 50000
     @State private var selectedMonthOffset: Int = 0
-    @State private var viewMode: VisualizerMode = .categories
-
-    enum VisualizerMode: String, CaseIterable {
-        case categories = "Categories"
-        case flow = "Flow"
-    }
 
     private var availableMonths: [(month: Int, year: Int, label: String)] {
         let cal = Calendar.current
@@ -68,19 +63,6 @@ struct VisualizerView: View {
         return months[index].label
     }
 
-    private var selectedMonthShortName: String {
-        let months = availableMonths
-        let index = min(max(selectedMonthOffset, 0), months.count - 1)
-        guard !months.isEmpty else { return "" }
-        let f = DateFormatter()
-        f.dateFormat = "MMMM"
-        var comps = DateComponents()
-        comps.year = months[index].year
-        comps.month = months[index].month
-        comps.day = 1
-        return Calendar.current.date(from: comps).map { f.string(from: $0).uppercased() } ?? ""
-    }
-
     private var selectedMonthTransactions: [Transaction] {
         let cal = Calendar.current
         let (month, year) = selectedMonth
@@ -106,13 +88,176 @@ struct VisualizerView: View {
         return dict.sorted { $0.value > $1.value }
     }
 
+    // MARK: - Sankey data
+    private var sankeyFlows: [SankeyFlow] {
+        var flows: [SankeyFlow] = categorySpend.map { name, amount in
+            SankeyFlow(
+                category: name,
+                label: name,
+                amount: amount,
+                color: KlarColors.categoryColor(for: name)
+            )
+        }
+        let savings = max(totalIncome - totalExpense, 0)
+        if savings > 0 {
+            flows.append(SankeyFlow(
+                category: nil,
+                label: "Saved",
+                amount: savings,
+                color: Color(hex: "#3A6EA5")
+            ))
+        }
+        return flows
+    }
+
+    // MARK: - Calendar heatmap data
+    private var dailySpendsForMonth: [DailySpend] {
+        let cal = Calendar.current
+        let (month, year) = selectedMonth
+        var comps = DateComponents()
+        comps.year = year
+        comps.month = month
+        comps.day = 1
+        guard let firstOfMonth = cal.date(from: comps),
+              let range = cal.range(of: .day, in: .month, for: firstOfMonth) else { return [] }
+
+        let expenseTransactions = selectedMonthTransactions.filter { $0.amount < 0 }
+
+        return range.map { day -> DailySpend in
+            var dayComps = DateComponents()
+            dayComps.year = year
+            dayComps.month = month
+            dayComps.day = day
+            let date = cal.date(from: dayComps) ?? firstOfMonth
+
+            let dayTxns = expenseTransactions.filter { cal.component(.day, from: $0.date) == day }
+            let totalAmount = dayTxns.reduce(0.0) { $0 + abs($1.amount) }
+
+            var catDict: [String: Double] = [:]
+            for txn in dayTxns {
+                catDict[txn.category, default: 0] += abs(txn.amount)
+            }
+            let categories = catDict.map { CategorySpend(category: $0.key, amount: $0.value) }
+
+            return DailySpend(date: date, amount: totalAmount, categories: categories)
+        }
+    }
+
+    private var monthStartDate: Date {
+        let cal = Calendar.current
+        let (month, year) = selectedMonth
+        var comps = DateComponents()
+        comps.year = year
+        comps.month = month
+        comps.day = 1
+        return cal.date(from: comps) ?? Date()
+    }
+
+    // MARK: - Weekly rhythm data
+    private var weeklyRhythmData: [(day: String, amount: Double)] {
+        let cal = Calendar.current
+        let dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        var totals: [Int: Double] = [:]
+        var counts: [Int: Int] = [:]
+
+        let expenseTransactions = selectedMonthTransactions.filter { $0.amount < 0 }
+
+        for txn in expenseTransactions {
+            let weekday = cal.component(.weekday, from: txn.date)
+            let mondayBased = (weekday + 5) % 7
+            totals[mondayBased, default: 0] += abs(txn.amount)
+            counts[mondayBased, default: 0] += 1
+        }
+
+        return (0..<7).map { i in
+            let avg = counts[i, default: 0] > 0 ? totals[i, default: 0] / Double(counts[i, default: 1]) : 0
+            return (day: dayNames[i], amount: avg)
+        }
+    }
+
+    // MARK: - Month comparison data
+    private var monthComparisonCategories: [CategorySpend] {
+        let cal = Calendar.current
+        let (month, year) = selectedMonth
+
+        var prevComps = DateComponents()
+        prevComps.year = year
+        prevComps.month = month
+        prevComps.day = 1
+        let prevDate = cal.date(from: prevComps).flatMap { cal.date(byAdding: .month, value: -1, to: $0) }
+        let prevMonth = prevDate.map { cal.component(.month, from: $0) } ?? month
+        let prevYear = prevDate.map { cal.component(.year, from: $0) } ?? year
+
+        let prevTransactions = transactions.filter {
+            $0.amount < 0 &&
+            cal.component(.month, from: $0.date) == prevMonth &&
+            cal.component(.year, from: $0.date) == prevYear
+        }
+
+        var prevDict: [String: Double] = [:]
+        for txn in prevTransactions {
+            prevDict[txn.category, default: 0] += abs(txn.amount)
+        }
+
+        return categorySpend.map { name, amount in
+            CategorySpend(
+                category: name,
+                amount: amount,
+                previousAmount: prevDict[name] ?? 0
+            )
+        }
+    }
+
+    // MARK: - Bump chart data
+    private var bumpChartRankings: [MonthlyRank] {
+        let cal = Calendar.current
+        let (month, year) = selectedMonth
+        var comps = DateComponents()
+        comps.year = year
+        comps.month = month
+        comps.day = 1
+        guard let currentMonthDate = cal.date(from: comps) else { return [] }
+
+        var rankings: [MonthlyRank] = []
+
+        for monthsBack in 0..<6 {
+            guard let targetDate = cal.date(byAdding: .month, value: -monthsBack, to: currentMonthDate) else { continue }
+            let m = cal.component(.month, from: targetDate)
+            let y = cal.component(.year, from: targetDate)
+
+            let monthTxns = transactions.filter {
+                $0.amount < 0 &&
+                cal.component(.month, from: $0.date) == m &&
+                cal.component(.year, from: $0.date) == y
+            }
+
+            var catTotals: [String: Double] = [:]
+            for txn in monthTxns {
+                catTotals[txn.category, default: 0] += abs(txn.amount)
+            }
+
+            let sorted = catTotals.sorted { $0.value > $1.value }
+            for (rank, item) in sorted.prefix(5).enumerated() {
+                rankings.append(MonthlyRank(
+                    month: targetDate,
+                    category: item.key,
+                    rank: rank + 1,
+                    amount: item.value
+                ))
+            }
+        }
+
+        return rankings
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 // Header
                 HStack(spacing: 0) {
                     Text("THE ")
-                        .font(KlarFonts.serifItalic(28))
+                        .font(.system(size: 28, weight: .bold, design: .serif))
+                        .italic()
                         .foregroundStyle(KlarColors.secondary)
                     Text("VISUALIZER")
                         .font(KlarFonts.display(28))
@@ -129,10 +274,9 @@ struct VisualizerView: View {
                     if availableMonths.count > 1 {
                         HStack {
                             Button {
-                                withAnimation(KlarAnimation.springDefault) {
+                                withAnimation {
                                     selectedMonthOffset = min(selectedMonthOffset + 1, availableMonths.count - 1)
                                 }
-                                HapticManager.light()
                             } label: {
                                 Image(systemName: "chevron.left")
                                     .font(.system(size: 14, weight: .semibold))
@@ -144,14 +288,12 @@ struct VisualizerView: View {
                             Text(selectedMonthName)
                                 .font(KlarFonts.heading(16))
                                 .foregroundStyle(KlarColors.primary)
-                                .contentTransition(.numericText())
                             Spacer()
 
                             Button {
-                                withAnimation(KlarAnimation.springDefault) {
+                                withAnimation {
                                     selectedMonthOffset = max(selectedMonthOffset - 1, 0)
                                 }
-                                HapticManager.light()
                             } label: {
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 14, weight: .semibold))
@@ -162,95 +304,67 @@ struct VisualizerView: View {
                         .padding(.horizontal, 20)
                     }
 
-                    // View Mode Toggle (Task 16)
-                    HStack(spacing: 0) {
-                        ForEach(VisualizerMode.allCases, id: \.self) { mode in
-                            Button {
-                                withAnimation(KlarAnimation.springDefault) {
-                                    viewMode = mode
-                                }
-                                HapticManager.light()
-                            } label: {
-                                Text(mode.rawValue.uppercased())
-                                    .font(KlarFonts.label(12))
-                                    .tracking(0.5)
-                                    .foregroundStyle(viewMode == mode ? KlarColors.primary : KlarColors.secondary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(viewMode == mode ? KlarColors.surface : .clear)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                            }
+                    // 1. Sankey Diagram (Hero)
+                    if totalIncome > 0 || totalExpense > 0 {
+                        KlarCard(dashedBorder: true) {
+                            SankeyDiagramView(
+                                income: max(totalIncome, totalExpense),
+                                flows: sankeyFlows,
+                                monthLabel: selectedMonthName
+                            )
                         }
-                    }
-                    .background(KlarColors.surfaceElevated)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .padding(.horizontal, 20)
-
-                    if viewMode == .categories {
-                        // Monthly Spending Gauge
-                        KlarCard {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("MONTHLY BUDGET (\(selectedMonthShortName))")
-                                    .font(KlarFonts.cardTitle())
-                                    .tracking(1.5)
-                                    .foregroundStyle(KlarColors.primary)
-
-                                if !categorySpend.isEmpty {
-                                    SpendingGauge(
-                                        spent: totalExpense,
-                                        budget: max(totalIncome, totalExpense),
-                                        segments: categorySpend.map { name, value in
-                                            SpendingGaugeSegment(label: name, value: value, color: KlarColors.categoryColor(for: name))
-                                        }
-                                    )
-                                }
-
-                                if totalIncome > 0 {
-                                    incomeRow
-                                }
-                            }
-                        }
-                        .pressableCard()
                         .padding(.horizontal, 20)
-                        .staggeredAppearance(index: 0)
-                    } else {
-                        // Sankey / Flow view (Task 16)
-                        KlarCard {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("MONEY FLOW (\(selectedMonthShortName))")
-                                    .font(KlarFonts.cardTitle())
-                                    .tracking(1.5)
-                                    .foregroundStyle(KlarColors.primary)
-
-                                SankeyDiagram(
-                                    income: totalIncome,
-                                    categories: categorySpend.map { name, value in
-                                        SankeyNode(label: name, value: value, color: KlarColors.categoryColor(for: name))
-                                    }
-                                )
-                                .frame(height: CGFloat(categorySpend.count + 1) * 36 + 50)
-                            }
-                        }
-                        .pressableCard()
-                        .padding(.horizontal, 20)
-                        .staggeredAppearance(index: 0)
                     }
 
-                    // Spending Trends
-                    SpendingTrendsView(
-                        transactions: Array(transactions),
-                        selectedMonth: selectedMonth.month,
-                        selectedYear: selectedMonth.year
-                    )
-                    .pressableCard()
-                    .padding(.horizontal, 20)
-                    .staggeredAppearance(index: 1)
+                    // 2. Calendar Heatmap
+                    if !dailySpendsForMonth.isEmpty {
+                        KlarCard(dashedBorder: true) {
+                            CalendarHeatmap(
+                                dailySpends: dailySpendsForMonth,
+                                month: monthStartDate
+                            )
+                        }
+                        .padding(.horizontal, 20)
+                    }
 
-                    // Subscription Audit
+                    // 3. Stacked Area (Spending Trends)
+                    if !dailySpendsForMonth.isEmpty && dailySpendsForMonth.contains(where: { $0.amount > 0 }) {
+                        KlarCard(dashedBorder: true) {
+                            StackedAreaSpending(
+                                dailyData: dailySpendsForMonth,
+                                budgetLimit: monthlyBudget
+                            )
+                        }
+                        .padding(.horizontal, 20)
+                    }
+
+                    // 4. Weekly Rhythm
+                    if weeklyRhythmData.contains(where: { $0.amount > 0 }) {
+                        KlarCard(dashedBorder: true) {
+                            WeeklyRhythmBars(dayAverages: weeklyRhythmData)
+                        }
+                        .padding(.horizontal, 20)
+                    }
+
+                    // 5. Month-over-Month Comparison
+                    if !monthComparisonCategories.isEmpty {
+                        KlarCard(dashedBorder: true) {
+                            MonthComparisonBars(categories: monthComparisonCategories)
+                        }
+                        .padding(.horizontal, 20)
+                    }
+
+                    // 6. Bump Chart (Category Rankings)
+                    if !bumpChartRankings.isEmpty {
+                        KlarCard(dashedBorder: true) {
+                            BumpChart(rankings: bumpChartRankings)
+                        }
+                        .padding(.horizontal, 20)
+                    }
+
+                    // 7. Subscription Audit (kept)
                     SubscriptionAuditView()
-                        .pressableCard()
                         .padding(.horizontal, 20)
-                        .staggeredAppearance(index: 2)
                 }
 
                 Spacer(minLength: 20)
@@ -262,52 +376,17 @@ struct VisualizerView: View {
         }
     }
 
-    private var incomeRow: some View {
-        HStack {
-            Image(systemName: "arrow.down.circle.fill")
-                .foregroundStyle(KlarColors.positive)
-                .font(.system(size: 14))
-            Text("INCOME")
-                .font(KlarFonts.label(11))
-                .foregroundStyle(KlarColors.secondary)
-            Text(CurrencyHelper.format(totalIncome))
-                .font(KlarFonts.label(13))
-                .monospacedDigit()
-                .foregroundStyle(KlarColors.positive)
-            Spacer()
-            let remaining = totalIncome - totalExpense
-            Image(systemName: "banknote")
-                .foregroundStyle(remaining >= 0 ? KlarColors.positive : KlarColors.negative)
-                .font(.system(size: 14))
-            Text("SAVED")
-                .font(KlarFonts.label(11))
-                .foregroundStyle(KlarColors.secondary)
-            Text(CurrencyHelper.format(remaining))
-                .font(KlarFonts.label(13))
-                .monospacedDigit()
-                .foregroundStyle(remaining >= 0 ? KlarColors.positive : KlarColors.negative)
-        }
-        .padding(.horizontal, 4)
-    }
-
     private var emptyState: some View {
         VStack(spacing: 16) {
-            HStack(spacing: -8) {
-                ForEach(["chart.bar.xaxis", "chart.pie", "waveform.path.ecg"], id: \.self) { icon in
-                    Image(systemName: icon)
-                        .font(.system(size: 20))
-                        .frame(width: 44, height: 44)
-                        .background(KlarColors.surfaceElevated)
-                        .clipShape(Circle())
-                }
-            }
-
+            Image(systemName: "chart.bar.xaxis")
+                .font(.system(size: 48))
+                .foregroundStyle(KlarColors.inactive)
             Text("No data to visualize")
                 .font(KlarFonts.heading(18))
-                .foregroundStyle(KlarColors.primary)
+                .foregroundStyle(KlarColors.secondary)
             Text("Import transactions to see your spending visualized here.")
                 .font(KlarFonts.body(14))
-                .foregroundStyle(KlarColors.secondary)
+                .foregroundStyle(KlarColors.inactive)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 40)

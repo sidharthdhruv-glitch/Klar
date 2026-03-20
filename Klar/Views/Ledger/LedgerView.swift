@@ -19,6 +19,19 @@ struct LedgerView: View {
         filteredResults ?? Array(transactions)
     }
 
+    private var merchantSparklines: [String: [Double]] {
+        var merchantTxns: [String: [Transaction]] = [:]
+        for txn in transactions where txn.amount < 0 {
+            merchantTxns[txn.merchant, default: []].append(txn)
+        }
+        var result: [String: [Double]] = [:]
+        for (merchant, txns) in merchantTxns where txns.count >= 3 {
+            let sorted = txns.sorted { $0.date < $1.date }
+            result[merchant] = sorted.suffix(6).map { abs($0.amount) }
+        }
+        return result
+    }
+
     private var groupedTransactions: [(String, [Transaction])] {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM d, yyyy"
@@ -135,7 +148,8 @@ struct LedgerView: View {
                                                 transaction: transaction,
                                                 index: globalIndexFor(sectionIndex: sectionIndex, rowIndex: rowIndex),
                                                 isSelectMode: isSelectMode,
-                                                isSelected: selectedTransactions.contains(transaction.id)
+                                                isSelected: selectedTransactions.contains(transaction.id),
+                                                merchantSparkData: merchantSparklines[transaction.merchant]
                                             )
                                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                                 Button(role: .destructive) {
@@ -444,6 +458,7 @@ struct TransactionRow: View {
     let index: Int
     let isSelectMode: Bool
     let isSelected: Bool
+    var merchantSparkData: [Double]? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -476,6 +491,19 @@ struct TransactionRow: View {
             }
 
             Spacer()
+
+            // Sparkline for frequent merchants
+            if let sparkData = merchantSparkData, sparkData.count >= 3 {
+                SparklineView(
+                    data: sparkData,
+                    trendColor: Color(hex: "#C9505B"),
+                    height: 20,
+                    lineWidth: 1.2,
+                    showGradientFill: false,
+                    showEndDot: true
+                )
+                .frame(width: 50)
+            }
 
             // Amount + date
             VStack(alignment: .trailing, spacing: 4) {

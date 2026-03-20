@@ -138,6 +138,49 @@ struct DashboardView: View {
         return dailyTotals
     }
 
+    private var categorySpendModels: [CategorySpend] {
+        let cal = Calendar.current
+        let (month, year) = selectedMonth
+
+        // Previous month transactions
+        var prevComps = DateComponents()
+        prevComps.year = year
+        prevComps.month = month
+        prevComps.day = 1
+        let prevDate = cal.date(from: prevComps).flatMap { cal.date(byAdding: .month, value: -1, to: $0) }
+        let prevMonth = prevDate.map { cal.component(.month, from: $0) } ?? month
+        let prevYear = prevDate.map { cal.component(.year, from: $0) } ?? year
+
+        let prevTransactions = transactions.filter {
+            $0.amount < 0 &&
+            cal.component(.month, from: $0.date) == prevMonth &&
+            cal.component(.year, from: $0.date) == prevYear
+        }
+
+        var prevDict: [String: Double] = [:]
+        for txn in prevTransactions {
+            prevDict[txn.category, default: 0] += abs(txn.amount)
+        }
+
+        let catCount = max(categorySpend.count, 1)
+        let perCatBudget = monthlyBudget / Double(catCount)
+
+        return categorySpend.map { name, amount in
+            CategorySpend(
+                category: name,
+                amount: amount,
+                budget: perCatBudget,
+                previousAmount: prevDict[name] ?? 0
+            )
+        }
+    }
+
+    private var waterfallExpenses: [CategorySpend] {
+        categorySpend.map { name, amount in
+            CategorySpend(category: name, amount: amount)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -308,40 +351,50 @@ struct DashboardView: View {
                     .padding(.horizontal, 20)
                     .staggeredAppearance(index: 0)
 
-                    // Net Flow
-                    NetFlowCard(
-                        totalIncome: totalIncome,
-                        totalExpense: totalExpense,
-                        balance: totalBalance,
-                        categorySpend: categorySpend
-                    )
+                    // Waterfall Chart (Money Flow)
+                    KlarCard {
+                        WaterfallChart(
+                            income: totalIncome,
+                            expenses: waterfallExpenses,
+                            savings: monthNetFlow
+                        )
+                    }
                     .pressableCard()
                     .padding(.horizontal, 20)
                     .staggeredAppearance(index: 1)
 
-                    // Category Breakdown
+                    // Horizontal Category Bars (Breakdown)
                     if !categorySpend.isEmpty {
-                        CategoryBreakdownView(categorySpend: categorySpend)
-                            .pressableCard()
-                            .padding(.horizontal, 20)
-                            .staggeredAppearance(index: 2)
+                        KlarCard {
+                            HorizontalCategoryBars(
+                                categories: categorySpendModels,
+                                totalSpent: totalExpense
+                            )
+                        }
+                        .pressableCard()
+                        .padding(.horizontal, 20)
+                        .staggeredAppearance(index: 2)
                     }
 
-                    // Burn Rate
-                    BurnRateView(
-                        rate: burnRate,
-                        spent: totalExpense,
-                        budget: monthlyBudget
-                    )
-                    .pressableCard()
-                    .padding(.horizontal, 20)
-                    .staggeredAppearance(index: 3)
+                    // Progress Ring Stack (Budget)
+                    if !categorySpendModels.isEmpty {
+                        KlarCard {
+                            ProgressRingStack(
+                                categories: categorySpendModels,
+                                totalBudget: monthlyBudget,
+                                totalSpent: totalExpense
+                            )
+                        }
+                        .pressableCard()
+                        .padding(.horizontal, 20)
+                        .staggeredAppearance(index: 3)
+                    }
 
-                    // Account Snapshots
+                    // Account Snapshots with Sparklines
                     if !accountBalances.isEmpty {
-                        AccountSnapshotsFromTransactions(
+                        AccountSnapshotsWithSparklines(
                             accountBalances: accountBalances,
-                            weeklyData: weeklySpend
+                            transactions: Array(transactions)
                         )
                         .staggeredAppearance(index: 4)
                     }
