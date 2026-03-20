@@ -1,11 +1,13 @@
 import SwiftUI
 
-enum KlarTab: Int, CaseIterable {
+enum KlarTab: Int, CaseIterable, Identifiable {
     case pulse = 0
     case importHub = 1
     case ledger = 2
     case visualizer = 3
     case settings = 4
+
+    var id: Int { rawValue }
 
     var title: String {
         switch self {
@@ -17,51 +19,59 @@ enum KlarTab: Int, CaseIterable {
         }
     }
 
-    var icon: String {
+    func icon(isSelected: Bool) -> String {
         switch self {
-        case .pulse: return "house"
-        case .importHub: return "icloud.and.arrow.down"
-        case .ledger: return "list.bullet.rectangle"
-        case .visualizer: return "chart.bar.xaxis"
-        case .settings: return "gearshape"
+        case .pulse: return isSelected ? "house.fill" : "house"
+        case .importHub: return isSelected ? "icloud.and.arrow.down.fill" : "icloud.and.arrow.down"
+        case .ledger: return isSelected ? "list.bullet.rectangle.fill" : "list.bullet.rectangle"
+        case .visualizer: return isSelected ? "chart.bar.xaxis" : "chart.bar.xaxis"
+        case .settings: return isSelected ? "gearshape.fill" : "gearshape"
         }
     }
 }
 
 struct KlarTabBar: View {
     @Binding var selectedTab: KlarTab
+    @Namespace private var tabAnimation
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(KlarTab.allCases, id: \.rawValue) { tab in
-                tabButton(tab)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 12)
-        .background(
-            Capsule()
-                .fill(KlarColors.tabBarBg)
-        )
-        .padding(.horizontal, 24)
-        .padding(.bottom, 20)
-    }
+            ForEach(KlarTab.allCases) { tab in
+                Button {
+                    withAnimation(KlarAnimation.springDefault) {
+                        selectedTab = tab
+                    }
+                    HapticManager.light()
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: tab.icon(isSelected: selectedTab == tab))
+                            .font(.system(size: 20, weight: selectedTab == tab ? .semibold : .regular))
+                            .foregroundColor(selectedTab == tab ? KlarColors.accent : .white.opacity(0.5))
+                            .symbolEffect(.bounce, value: selectedTab == tab)
 
-    @ViewBuilder
-    private func tabButton(_ tab: KlarTab) -> some View {
-        let isActive = selectedTab == tab
-        Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                selectedTab = tab
+                        if selectedTab == tab {
+                            Circle()
+                                .fill(KlarColors.accent)
+                                .frame(width: 4, height: 4)
+                                .matchedGeometryEffect(id: "tabIndicator", in: tabAnimation)
+                        } else {
+                            Circle()
+                                .fill(.clear)
+                                .frame(width: 4, height: 4)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
             }
-        } label: {
-            Image(systemName: tab.icon)
-                .font(.system(size: 22, weight: .medium))
-                .foregroundStyle(isActive ? KlarColors.accent : .white.opacity(0.5))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
         }
-        .buttonStyle(.plain)
-        .sensoryFeedback(.selection, trigger: selectedTab)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 8)
     }
 }

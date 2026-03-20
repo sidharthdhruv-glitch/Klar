@@ -8,12 +8,14 @@ struct SettingsView: View {
 
     @State private var showAddCategory = false
     @State private var showRuleEngine = false
+    @State private var isJiggleMode = false
     @AppStorage("includeChartsInExport") private var includeChartsInExport = true
     @AppStorage("autoExportOnFirst") private var autoExportOnFirst = false
     @AppStorage("exportFormat") private var exportFormat = "PDF"
     @AppStorage("userName") private var userName = "User"
     @AppStorage("userEmail") private var userEmail = ""
     @AppStorage("monthlyBudget") private var monthlyBudget: Double = 50000
+    @AppStorage("selectedTheme") private var selectedTheme = "Cream"
     @FocusState private var isBudgetFocused: Bool
 
     var body: some View {
@@ -25,6 +27,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
 
+                themeSection
                 ruleEngineSection
                 customCategoriesSection
                 budgetSection
@@ -44,16 +47,80 @@ struct SettingsView: View {
                 modelContext.insert(cat)
                 try? modelContext.save()
                 showAddCategory = false
+                HapticManager.success()
             }
         }
+    }
+
+    // MARK: - Theme Selector (Task 17)
+    private var themeSection: some View {
+        KlarCard {
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(title: "APPEARANCE")
+
+                HStack(spacing: 12) {
+                    ForEach(KlarTheme.allCases, id: \.self) { theme in
+                        Button {
+                            withAnimation(KlarAnimation.springDefault) {
+                                selectedTheme = theme.rawValue
+                            }
+                            HapticManager.medium()
+                        } label: {
+                            VStack(spacing: 8) {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(theme.previewGradient)
+                                    .frame(height: 64)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(
+                                                selectedTheme == theme.rawValue ? KlarColors.accent : Color.clear,
+                                                lineWidth: 2
+                                            )
+                                    )
+                                    .overlay(
+                                        VStack(spacing: 2) {
+                                            RoundedRectangle(cornerRadius: 2)
+                                                .fill(theme == .midnight ? Color.white.opacity(0.3) : Color.black.opacity(0.15))
+                                                .frame(width: 28, height: 4)
+                                            RoundedRectangle(cornerRadius: 2)
+                                                .fill(theme == .midnight ? Color.white.opacity(0.2) : Color.black.opacity(0.08))
+                                                .frame(width: 20, height: 4)
+                                        }
+                                    )
+
+                                Text(theme.rawValue.uppercased())
+                                    .font(KlarFonts.label(10))
+                                    .tracking(0.5)
+                                    .foregroundStyle(selectedTheme == theme.rawValue ? KlarColors.primary : KlarColors.secondary)
+
+                                if selectedTheme == theme.rawValue {
+                                    Circle()
+                                        .fill(KlarColors.accent)
+                                        .frame(width: 6, height: 6)
+                                } else {
+                                    Circle()
+                                        .fill(Color.clear)
+                                        .frame(width: 6, height: 6)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+        }
+        .pressableCard()
+        .padding(.horizontal, 20)
+        .staggeredAppearance(index: 0)
     }
 
     // MARK: - Rule Engine
     private var ruleEngineSection: some View {
         Button {
             showRuleEngine = true
+            HapticManager.light()
         } label: {
-            KlarCard(dashedBorder: true) {
+            KlarCard {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         SectionHeader(title: "RULE ENGINE")
@@ -69,14 +136,30 @@ struct SettingsView: View {
             }
         }
         .buttonStyle(.plain)
+        .pressableCard()
         .padding(.horizontal, 20)
+        .staggeredAppearance(index: 1)
     }
 
-    // MARK: - Custom Categories
+    // MARK: - Custom Categories (Task 18: Jiggle reorder)
     private var customCategoriesSection: some View {
-        KlarCard(dashedBorder: true) {
+        KlarCard {
             VStack(alignment: .leading, spacing: 14) {
-                SectionHeader(title: "CATEGORIES")
+                HStack {
+                    SectionHeader(title: "CATEGORIES")
+                    Spacer()
+                    Button {
+                        withAnimation(KlarAnimation.springBouncy) {
+                            isJiggleMode.toggle()
+                        }
+                        HapticManager.medium()
+                    } label: {
+                        Text(isJiggleMode ? "DONE" : "EDIT")
+                            .font(KlarFonts.label(11))
+                            .tracking(0.5)
+                            .foregroundStyle(isJiggleMode ? KlarColors.accent : KlarColors.secondary)
+                    }
+                }
 
                 let displayCategories = categories.isEmpty ? DefaultData.categories : Array(categories)
 
@@ -85,7 +168,7 @@ struct SettingsView: View {
                     GridItem(.flexible()),
                     GridItem(.flexible()),
                 ], spacing: 12) {
-                    ForEach(displayCategories, id: \.name) { cat in
+                    ForEach(Array(displayCategories.enumerated()), id: \.element.name) { index, cat in
                         VStack(spacing: 6) {
                             RoundedRectangle(cornerRadius: 10)
                                 .fill(Color(hex: cat.colorHex).opacity(0.15))
@@ -93,6 +176,30 @@ struct SettingsView: View {
                                 .overlay(
                                     Image(systemName: cat.sfSymbol)
                                         .foregroundStyle(Color(hex: cat.colorHex))
+                                )
+                                .overlay(alignment: .topTrailing) {
+                                    if isJiggleMode {
+                                        Button {
+                                            if let catToDelete = categories.first(where: { $0.name == cat.name }) {
+                                                modelContext.delete(catToDelete)
+                                                try? modelContext.save()
+                                            }
+                                            HapticManager.medium()
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 16))
+                                                .foregroundStyle(.white)
+                                                .background(Circle().fill(KlarColors.negative))
+                                        }
+                                        .offset(x: 6, y: -6)
+                                    }
+                                }
+                                .rotationEffect(isJiggleMode ? .degrees(Double.random(in: -2...2)) : .zero)
+                                .animation(
+                                    isJiggleMode
+                                    ? .easeInOut(duration: 0.15).repeatForever(autoreverses: true)
+                                    : .default,
+                                    value: isJiggleMode
                                 )
 
                             Text(cat.name.uppercased())
@@ -104,10 +211,11 @@ struct SettingsView: View {
 
                     Button {
                         showAddCategory = true
+                        HapticManager.light()
                     } label: {
                         VStack(spacing: 6) {
                             RoundedRectangle(cornerRadius: 10)
-                                .stroke(KlarColors.inactive, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                                .stroke(KlarColors.inactive, lineWidth: 1)
                                 .frame(height: 44)
                                 .overlay(
                                     Image(systemName: "plus")
@@ -123,12 +231,14 @@ struct SettingsView: View {
                 }
             }
         }
+        .pressableCard()
         .padding(.horizontal, 20)
+        .staggeredAppearance(index: 2)
     }
 
     // MARK: - Budget
     private var budgetSection: some View {
-        KlarCard(dashedBorder: true) {
+        KlarCard {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "MONTHLY BUDGET")
 
@@ -160,12 +270,14 @@ struct SettingsView: View {
                     .foregroundStyle(KlarColors.inactive)
             }
         }
+        .pressableCard()
         .padding(.horizontal, 20)
+        .staggeredAppearance(index: 3)
     }
 
     // MARK: - Export
     private var exportSection: some View {
-        KlarCard(dashedBorder: true) {
+        KlarCard {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "EXPORT SETTINGS")
 
@@ -197,7 +309,7 @@ struct SettingsView: View {
                 }
 
                 Button {
-                    // Export action placeholder
+                    HapticManager.medium()
                 } label: {
                     HStack {
                         Image(systemName: "square.and.arrow.up")
@@ -213,12 +325,14 @@ struct SettingsView: View {
                 }
             }
         }
+        .pressableCard()
         .padding(.horizontal, 20)
+        .staggeredAppearance(index: 4)
     }
 
     // MARK: - Profile
     private var profileSection: some View {
-        KlarCard(dashedBorder: true) {
+        KlarCard {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "PROFILE")
 
@@ -246,7 +360,7 @@ struct SettingsView: View {
                     .background(KlarColors.barTrack)
 
                 Button(role: .destructive) {
-                    // Sign out placeholder
+                    HapticManager.warning()
                 } label: {
                     Text("Sign Out")
                         .font(KlarFonts.label(14))
@@ -256,7 +370,9 @@ struct SettingsView: View {
                 }
             }
         }
+        .pressableCard()
         .padding(.horizontal, 20)
+        .staggeredAppearance(index: 5)
     }
 }
 
@@ -269,7 +385,6 @@ struct RuleEngineSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             HStack {
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
@@ -285,7 +400,10 @@ struct RuleEngineSheet: View {
 
                 Spacer()
 
-                Button { showAddRule = true } label: {
+                Button {
+                    showAddRule = true
+                    HapticManager.light()
+                } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(KlarColors.accent)
@@ -340,6 +458,7 @@ struct RuleEngineSheet: View {
                                 Button {
                                     modelContext.delete(rule)
                                     try? modelContext.save()
+                                    HapticManager.medium()
                                 } label: {
                                     Image(systemName: "trash")
                                         .font(.system(size: 13))
@@ -357,9 +476,9 @@ struct RuleEngineSheet: View {
                 }
             }
 
-            // Add rule button at bottom
             Button {
                 showAddRule = true
+                HapticManager.light()
             } label: {
                 HStack {
                     Image(systemName: "plus.circle.fill")
@@ -384,6 +503,7 @@ struct RuleEngineSheet: View {
                 modelContext.insert(rule)
                 try? modelContext.save()
                 showAddRule = false
+                HapticManager.success()
             }
         }
     }
@@ -437,6 +557,7 @@ struct AddRuleSheet: View {
                     ForEach(categoryNames, id: \.self) { name in
                         Button {
                             selectedCategory = name
+                            HapticManager.light()
                         } label: {
                             Text(name.uppercased())
                                 .font(KlarFonts.label(11))
@@ -510,6 +631,7 @@ struct AddCategorySheet: View {
                     ForEach(symbols, id: \.self) { symbol in
                         Button {
                             selectedSymbol = symbol
+                            HapticManager.light()
                         } label: {
                             Image(systemName: symbol)
                                 .font(.system(size: 20))

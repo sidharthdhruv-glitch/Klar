@@ -32,6 +32,7 @@
 		AA000023 /* SubscriptionAuditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000023; };
 		AA000024 /* StatementParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000024; };
 		AA000025 /* SpendingGauge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000025; };
+		AA000026 /* HapticManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000026; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -60,6 +61,7 @@
 		BB000023 /* SubscriptionAuditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionAuditView.swift; sourceTree = "<group>"; };
 		BB000024 /* StatementParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementParser.swift; sourceTree = "<group>"; };
 		BB000025 /* SpendingGauge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingGauge.swift; sourceTree = "<group>"; };
+		BB000026 /* HapticManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticManager.swift; sourceTree = "<group>"; };
 		CC000001 /* Klar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Klar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -110,6 +112,7 @@
 				BB000005 /* DesignSystem.swift */,
 				BB000006 /* CurrencyFormatter.swift */,
 				BB000024 /* StatementParser.swift */,
+				BB000026 /* HapticManager.swift */,
 			);
 			path = Helpers;
 			sourceTree = "<group>";
@@ -287,6 +290,7 @@
 				AA000023 /* SubscriptionAuditView.swift in Sources */,
 				AA000024 /* StatementParser.swift in Sources */,
 				AA000025 /* SpendingGauge.swift in Sources */,
+				AA000026 /* HapticManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

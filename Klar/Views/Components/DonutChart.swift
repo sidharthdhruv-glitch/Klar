@@ -11,7 +11,8 @@ struct DonutChart: View {
     let segments: [DonutChartSegment]
     let lineWidth: CGFloat
     @Binding var selectedSegment: String?
-    @State private var animationProgress: CGFloat = 0
+    @State private var isVisible = false
+    @State private var centerVisible = false
 
     init(segments: [DonutChartSegment], lineWidth: CGFloat = 32, selectedSegment: Binding<String?> = .constant(nil)) {
         self.segments = segments
@@ -25,17 +26,24 @@ struct DonutChart: View {
 
     var body: some View {
         ZStack {
+            // Background track
+            Circle()
+                .stroke(KlarColors.barTrack, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
+
             ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
-                let startAngle = startAngle(for: index)
-                let endAngle = startAngle + .degrees(360 * segment.value / total)
                 let isSelected = selectedSegment == segment.label
 
                 Circle()
-                    .trim(from: trimStart(for: index) * animationProgress,
-                           to: trimEnd(for: index) * animationProgress)
+                    .trim(from: trimStart(for: index),
+                          to: isVisible ? trimEnd(for: index) : trimStart(for: index))
                     .stroke(segment.color, style: StrokeStyle(lineWidth: isSelected ? lineWidth + 6 : lineWidth, lineCap: .butt))
                     .rotationEffect(.degrees(-90))
                     .scaleEffect(isSelected ? 1.05 : 1.0)
+                    .animation(
+                        .spring(response: 0.6, dampingFraction: 0.8)
+                        .delay(Double(index) * 0.15),
+                        value: isVisible
+                    )
                     .animation(.spring(response: 0.3), value: isSelected)
                     .onTapGesture {
                         withAnimation {
@@ -45,30 +53,28 @@ struct DonutChart: View {
                                 selectedSegment = segment.label
                             }
                         }
+                        HapticManager.light()
                     }
             }
 
             VStack(spacing: 4) {
-                Text(CurrencyHelper.format(total))
-                    .font(KlarFonts.heading(18))
-                    .monospacedDigit()
-                    .foregroundStyle(KlarColors.primary)
+                AnimatedNumber(
+                    value: total,
+                    font: KlarFonts.heading(18),
+                    color: KlarColors.primary
+                )
                 Text("TOTAL")
                     .font(KlarFonts.label(10))
                     .tracking(1)
                     .foregroundStyle(KlarColors.secondary)
             }
+            .opacity(centerVisible ? 1 : 0)
+            .animation(.easeIn(duration: 0.3).delay(Double(segments.count) * 0.15 + 0.2), value: centerVisible)
         }
         .onAppear {
-            withAnimation(.easeInOut(duration: 1.2)) {
-                animationProgress = 1.0
-            }
+            isVisible = true
+            centerVisible = true
         }
-    }
-
-    private func startAngle(for index: Int) -> Angle {
-        let precedingTotal = segments.prefix(index).reduce(0.0) { $0 + $1.value }
-        return .degrees(360 * precedingTotal / total)
     }
 
     private func trimStart(for index: Int) -> CGFloat {

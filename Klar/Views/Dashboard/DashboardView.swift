@@ -12,6 +12,8 @@ struct DashboardView: View {
     @State private var selectedMonthOffset: Int = 0
     @State private var showAddTransaction = false
     @State private var showOCRScanner = false
+    @State private var slideDirection: Edge = .trailing
+    @State private var showTooltip = false
     @Environment(\.modelContext) private var modelContext
 
     private var availableMonths: [(month: Int, year: Int, label: String)] {
@@ -38,7 +40,6 @@ struct DashboardView: View {
 
         result.sort { ($0.year, $0.month) > ($1.year, $1.month) }
 
-        // Always include current month
         let nowM = cal.component(.month, from: Date())
         let nowY = cal.component(.year, from: Date())
         if !result.contains(where: { $0.month == nowM && $0.year == nowY }) {
@@ -88,8 +89,6 @@ struct DashboardView: View {
     }
 
     private var totalBalance: Double {
-        // Compute all-time balance per account, then sum
-        // This reflects actual account balances, not just the selected month
         var accountBalances: [String: Double] = [:]
         for txn in transactions {
             accountBalances[txn.account, default: 0] += txn.amount
@@ -115,12 +114,10 @@ struct DashboardView: View {
     }
 
     private var accountBalances: [(name: String, type: AccountType, balance: Double)] {
-        // Compute balance per account from all transactions
         var balances: [String: Double] = [:]
         for txn in transactions {
             balances[txn.account, default: 0] += txn.amount
         }
-        // Match account types from Account model, default to .savings
         let accountTypeMap = Dictionary(uniqueKeysWithValues: accounts.map { ($0.name, $0.type) })
         return balances.map { name, balance in
             (name: name, type: accountTypeMap[name] ?? .savings, balance: balance)
@@ -134,7 +131,7 @@ struct DashboardView: View {
         for daysAgo in stride(from: 6, through: 0, by: -1) {
             let day = cal.date(byAdding: .day, value: -daysAgo, to: now)!
             let dayTotal = activeTransactions.filter { txn in
-                txn.type == .expense && cal.isDate(txn.date, inSameDayAs: day)
+                txn.amount < 0 && cal.isDate(txn.date, inSameDayAs: day)
             }.reduce(0) { $0 + abs($1.amount) }
             dailyTotals.append(dayTotal)
         }
@@ -148,6 +145,7 @@ struct DashboardView: View {
                 HStack {
                     Button {
                         showOCRScanner = true
+                        HapticManager.light()
                     } label: {
                         RoundedRectangle(cornerRadius: 10)
                             .fill(KlarColors.accent.opacity(0.15))
@@ -164,8 +162,8 @@ struct DashboardView: View {
                             .font(KlarFonts.display(22))
                             .foregroundStyle(KlarColors.primary)
                         Text("YOUR DASHBOARD")
-                            .font(KlarFonts.label(12))
-                            .tracking(1)
+                            .font(KlarFonts.cardTitle())
+                            .tracking(1.5)
                             .foregroundStyle(KlarColors.secondary)
                     }
 
@@ -173,6 +171,7 @@ struct DashboardView: View {
 
                     Button {
                         showAddTransaction = true
+                        HapticManager.light()
                     } label: {
                         Circle()
                             .stroke(KlarColors.searchHighlight, lineWidth: 2)
@@ -194,7 +193,9 @@ struct DashboardView: View {
                     if availableMonths.count > 1 {
                         HStack {
                             Button {
-                                withAnimation {
+                                slideDirection = .leading
+                                HapticManager.light()
+                                withAnimation(KlarAnimation.springDefault) {
                                     selectedMonthOffset = min(selectedMonthOffset + 1, availableMonths.count - 1)
                                 }
                             } label: {
@@ -208,10 +209,13 @@ struct DashboardView: View {
                             Text(selectedMonthLabel)
                                 .font(KlarFonts.heading(16))
                                 .foregroundStyle(KlarColors.primary)
+                                .contentTransition(.numericText())
                             Spacer()
 
                             Button {
-                                withAnimation {
+                                slideDirection = .trailing
+                                HapticManager.light()
+                                withAnimation(KlarAnimation.springDefault) {
                                     selectedMonthOffset = max(selectedMonthOffset - 1, 0)
                                 }
                             } label: {
@@ -225,24 +229,23 @@ struct DashboardView: View {
                     }
 
                     // Total Balance Card
-                    KlarCard(dashedBorder: true) {
+                    KlarCard {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Text("TOTAL BALANCE")
-                                    .font(KlarFonts.heading(20))
+                                    .font(KlarFonts.cardTitle())
+                                    .tracking(1.5)
                                     .foregroundStyle(KlarColors.primary)
                                 Spacer()
-                                HStack(spacing: 4) {
-                                    Text("ALL ACCOUNTS")
-                                        .font(KlarFonts.label(11))
-                                        .foregroundStyle(KlarColors.secondary)
-                                }
+                                Text("ALL ACCOUNTS")
+                                    .font(KlarFonts.label(11))
+                                    .foregroundStyle(KlarColors.secondary)
                             }
 
                             HStack(spacing: 12) {
                                 AnimatedNumber(
                                     value: totalBalance,
-                                    font: KlarFonts.display(28),
+                                    font: KlarFonts.dataValue(28),
                                     color: totalBalance >= 0 ? KlarColors.primary : KlarColors.negative
                                 )
 
@@ -254,7 +257,28 @@ struct DashboardView: View {
                                         .padding(.vertical, 4)
                                         .background((monthNetFlow >= 0 ? KlarColors.positive : KlarColors.negative).opacity(0.1))
                                         .clipShape(Capsule())
+                                        .onTapGesture {
+                                            withAnimation(KlarAnimation.springBouncy) {
+                                                showTooltip.toggle()
+                                            }
+                                            HapticManager.light()
+                                        }
                                 }
+                            }
+
+                            if showTooltip {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "info.circle")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(KlarColors.secondary)
+                                    Text("Net change for \(selectedMonthLabel.lowercased().capitalized)")
+                                        .font(KlarFonts.label(11))
+                                        .foregroundStyle(KlarColors.secondary)
+                                }
+                                .padding(8)
+                                .background(KlarColors.surfaceElevated)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .transition(.scale(scale: 0.8, anchor: .top).combined(with: .opacity))
                             }
 
                             // Per-account balances
@@ -280,7 +304,9 @@ struct DashboardView: View {
                             }
                         }
                     }
+                    .pressableCard()
                     .padding(.horizontal, 20)
+                    .staggeredAppearance(index: 0)
 
                     // Net Flow
                     NetFlowCard(
@@ -289,12 +315,16 @@ struct DashboardView: View {
                         balance: totalBalance,
                         categorySpend: categorySpend
                     )
+                    .pressableCard()
                     .padding(.horizontal, 20)
+                    .staggeredAppearance(index: 1)
 
                     // Category Breakdown
                     if !categorySpend.isEmpty {
                         CategoryBreakdownView(categorySpend: categorySpend)
+                            .pressableCard()
                             .padding(.horizontal, 20)
+                            .staggeredAppearance(index: 2)
                     }
 
                     // Burn Rate
@@ -303,7 +333,9 @@ struct DashboardView: View {
                         spent: totalExpense,
                         budget: monthlyBudget
                     )
+                    .pressableCard()
                     .padding(.horizontal, 20)
+                    .staggeredAppearance(index: 3)
 
                     // Account Snapshots
                     if !accountBalances.isEmpty {
@@ -311,6 +343,7 @@ struct DashboardView: View {
                             accountBalances: accountBalances,
                             weeklyData: weeklySpend
                         )
+                        .staggeredAppearance(index: 4)
                     }
                 }
 
@@ -326,6 +359,7 @@ struct DashboardView: View {
                 modelContext.insert(transaction)
                 try? modelContext.save()
                 showAddTransaction = false
+                HapticManager.success()
             }
         }
         .sheet(isPresented: $showOCRScanner) {
@@ -333,12 +367,12 @@ struct DashboardView: View {
                 modelContext.insert(transaction)
                 try? modelContext.save()
                 showOCRScanner = false
+                HapticManager.success()
             }
         }
     }
 
     private func autoSelectMonth() {
-        // If current month has no data, auto-select the first month that does
         if activeTransactions.isEmpty && availableMonths.count > 1 {
             let cal = Calendar.current
             for (index, monthInfo) in availableMonths.enumerated() {
@@ -356,17 +390,23 @@ struct DashboardView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 48))
-                .foregroundStyle(KlarColors.inactive)
+            HStack(spacing: -8) {
+                ForEach(["doc.text", "chart.bar", "creditcard"], id: \.self) { icon in
+                    Image(systemName: icon)
+                        .font(.system(size: 20))
+                        .frame(width: 44, height: 44)
+                        .background(KlarColors.surfaceElevated)
+                        .clipShape(Circle())
+                }
+            }
 
             Text("No transactions yet")
                 .font(KlarFonts.heading(18))
-                .foregroundStyle(KlarColors.secondary)
+                .foregroundStyle(KlarColors.primary)
 
             Text("Import a bank statement from the Import tab to get started.")
                 .font(KlarFonts.body(14))
-                .foregroundStyle(KlarColors.inactive)
+                .foregroundStyle(KlarColors.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 40)
@@ -415,11 +455,12 @@ struct AddTransactionSheet: View {
                     HStack(spacing: 0) {
                         ForEach(TransactionType.allCases, id: \.self) { type in
                             Button {
-                                withAnimation(.spring(response: 0.3)) {
+                                withAnimation(KlarAnimation.springSnappy) {
                                     selectedType = type
                                     if type == .income { selectedCategory = "Income" }
                                     else if selectedCategory == "Income" { selectedCategory = "Shopping" }
                                 }
+                                HapticManager.medium()
                             } label: {
                                 Text(type.rawValue.uppercased())
                                     .font(KlarFonts.label(12))
@@ -498,6 +539,7 @@ struct AddTransactionSheet: View {
                             ForEach(categoryNames, id: \.self) { name in
                                 Button {
                                     selectedCategory = name
+                                    HapticManager.medium()
                                 } label: {
                                     Text(name.uppercased())
                                         .font(KlarFonts.label(11))
@@ -657,7 +699,7 @@ struct OCRScannerSheet: View {
                         HStack(spacing: 0) {
                             ForEach(TransactionType.allCases, id: \.self) { type in
                                 Button {
-                                    withAnimation(.spring(response: 0.3)) { selectedType = type }
+                                    withAnimation(KlarAnimation.springSnappy) { selectedType = type }
                                 } label: {
                                     Text(type.rawValue.uppercased())
                                         .font(KlarFonts.label(12))
@@ -675,9 +717,7 @@ struct OCRScannerSheet: View {
 
                         VStack(alignment: .leading, spacing: 6) {
                             Text("AMOUNT")
-                                .font(KlarFonts.label(11))
-                                .tracking(1)
-                                .foregroundStyle(KlarColors.secondary)
+                                .font(KlarFonts.label(11)).tracking(1).foregroundStyle(KlarColors.secondary)
                             HStack {
                                 Text("₹").font(KlarFonts.heading(20)).foregroundStyle(KlarColors.primary)
                                 TextField("0", text: $parsedAmount)
@@ -693,9 +733,7 @@ struct OCRScannerSheet: View {
 
                         VStack(alignment: .leading, spacing: 6) {
                             Text("MERCHANT")
-                                .font(KlarFonts.label(11))
-                                .tracking(1)
-                                .foregroundStyle(KlarColors.secondary)
+                                .font(KlarFonts.label(11)).tracking(1).foregroundStyle(KlarColors.secondary)
                             TextField("Merchant name", text: $parsedMerchant)
                                 .font(KlarFonts.body(15))
                                 .foregroundStyle(KlarColors.primary)
@@ -706,9 +744,7 @@ struct OCRScannerSheet: View {
 
                         VStack(alignment: .leading, spacing: 6) {
                             Text("DATE")
-                                .font(KlarFonts.label(11))
-                                .tracking(1)
-                                .foregroundStyle(KlarColors.secondary)
+                                .font(KlarFonts.label(11)).tracking(1).foregroundStyle(KlarColors.secondary)
                             DatePicker("", selection: $parsedDate, displayedComponents: .date)
                                 .datePickerStyle(.compact)
                                 .labelsHidden()
@@ -719,9 +755,7 @@ struct OCRScannerSheet: View {
 
                         VStack(alignment: .leading, spacing: 6) {
                             Text("CATEGORY")
-                                .font(KlarFonts.label(11))
-                                .tracking(1)
-                                .foregroundStyle(KlarColors.secondary)
+                                .font(KlarFonts.label(11)).tracking(1).foregroundStyle(KlarColors.secondary)
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                                 ForEach(categoryNames, id: \.self) { name in
                                     Button { parsedCategory = name } label: {
@@ -776,6 +810,7 @@ struct OCRScannerSheet: View {
                 scannedText = text
                 parseScannedText(text)
                 showScanner = false
+                HapticManager.success()
             } onCancel: {
                 showScanner = false
                 if scannedText.isEmpty { dismiss() }
@@ -789,9 +824,7 @@ struct OCRScannerSheet: View {
         }
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if scannedText.isEmpty {
-                    showScanner = true
-                }
+                if scannedText.isEmpty { showScanner = true }
             }
         }
     }
@@ -857,7 +890,6 @@ struct ScannerCameraView: UIViewControllerRepresentable {
         }
 
         func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFinishWith scan: VNDocumentCameraScan) {
-            // Capture images before dismissing (scan object may not be valid after dismiss)
             var images: [CGImage] = []
             for i in 0..<scan.pageCount {
                 if let cgImage = scan.imageOfPage(at: i).cgImage {
@@ -866,7 +898,6 @@ struct ScannerCameraView: UIViewControllerRepresentable {
             }
 
             controller.dismiss(animated: true) { [self] in
-                // Run OCR on background thread to avoid blocking UI
                 DispatchQueue.global(qos: .userInitiated).async {
                     var fullText = ""
                     for cgImage in images {

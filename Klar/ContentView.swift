@@ -24,6 +24,7 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            .animation(KlarAnimation.springDefault, value: selectedTab)
             .overlay(alignment: .bottom) {
                 LinearGradient(
                     colors: [
@@ -47,12 +48,10 @@ struct ContentView: View {
         }
     }
 
-    /// Seeds default categories and rules only — no mock transactions.
     private func seedDefaultsIfNeeded() {
         guard !hasSeeded else { return }
         hasSeeded = true
 
-        // Seed default categories if none exist
         let catDescriptor = FetchDescriptor<Category>()
         let catCount = (try? modelContext.fetchCount(catDescriptor)) ?? 0
         if catCount == 0 {
@@ -61,7 +60,6 @@ struct ContentView: View {
             }
         }
 
-        // Seed default rules if none exist
         let ruleDescriptor = FetchDescriptor<Rule>()
         let ruleCount = (try? modelContext.fetchCount(ruleDescriptor)) ?? 0
         if ruleCount == 0 {

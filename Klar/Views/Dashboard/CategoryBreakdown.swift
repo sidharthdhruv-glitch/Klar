@@ -58,13 +58,18 @@ struct CategoryBreakdownView: View {
                         withAnimation(.spring(response: 0.3)) {
                             selectedCategory = selectedCategory == name ? nil : name
                         }
+                        HapticManager.light()
                     }
                 }
             }
         }
         .padding(16)
-        .background(KlarColors.surface)
+        .background(KlarColors.cardBg)
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(KlarColors.border, lineWidth: 1)
+        )
         .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
     }
 }

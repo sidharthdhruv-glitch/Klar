@@ -7,6 +7,7 @@ struct AnimatedNumber: View {
     let color: Color
 
     @State private var displayValue: Double = 0
+    @State private var hasAppeared = false
 
     init(
         value: Double,
@@ -27,8 +28,15 @@ struct AnimatedNumber: View {
             .foregroundStyle(color)
             .contentTransition(.numericText(value: displayValue))
             .onAppear {
-                withAnimation(.easeOut(duration: 1.0)) {
+                guard !hasAppeared else { return }
+                hasAppeared = true
+                withAnimation(.spring(response: 0.8, dampingFraction: 0.85)) {
                     displayValue = value
+                }
+            }
+            .onChange(of: value) { _, newValue in
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
+                    displayValue = newValue
                 }
             }
     }
@@ -37,6 +45,7 @@ struct AnimatedNumber: View {
 struct AnimatedPercentage: View {
     let value: Double
     @State private var displayValue: Double = 0
+    @State private var hasAppeared = false
 
     var body: some View {
         Text(String(format: "%.1f%%", displayValue * 100))
@@ -45,8 +54,15 @@ struct AnimatedPercentage: View {
             .foregroundStyle(value >= 0 ? KlarColors.positive : KlarColors.negative)
             .contentTransition(.numericText(value: displayValue))
             .onAppear {
-                withAnimation(.easeOut(duration: 1.0)) {
+                guard !hasAppeared else { return }
+                hasAppeared = true
+                withAnimation(.spring(response: 0.8, dampingFraction: 0.85)) {
                     displayValue = value
+                }
+            }
+            .onChange(of: value) { _, newValue in
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
+                    displayValue = newValue
                 }
             }
     }

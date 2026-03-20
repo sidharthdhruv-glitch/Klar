@@ -13,6 +13,7 @@ struct LedgerView: View {
     @State private var filteredResults: [Transaction]?
     @State private var showDeleteConfirmation = false
     @State private var transactionToDelete: Transaction?
+    @State private var isRefreshing = false
 
     private var displayTransactions: [Transaction] {
         filteredResults ?? Array(transactions)
@@ -38,8 +39,7 @@ struct LedgerView: View {
             VStack(spacing: 12) {
                 HStack(spacing: 0) {
                     Text("THE ")
-                        .font(.system(size: 28, weight: .bold, design: .serif))
-                        .italic()
+                        .font(KlarFonts.serifItalic(28))
                         .foregroundStyle(KlarColors.secondary)
                     Text("LEDGER")
                         .font(KlarFonts.display(28))
@@ -48,14 +48,15 @@ struct LedgerView: View {
                 .padding(.top, 16)
 
                 // Smart Search
-                KlarCard(dashedBorder: true) {
+                KlarCard {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 8) {
                             Image(systemName: "sparkles")
                                 .foregroundStyle(KlarColors.searchHighlight)
                                 .font(.system(size: 14))
                             Text("SMART SEARCH")
-                                .font(KlarFonts.heading(16))
+                                .font(KlarFonts.cardTitle())
+                                .tracking(1.5)
                                 .foregroundStyle(KlarColors.primary)
                         }
 
@@ -65,6 +66,7 @@ struct LedgerView: View {
                                 .foregroundStyle(KlarColors.primary)
                                 .onSubmit {
                                     performSmartSearch()
+                                    HapticManager.light()
                                 }
                                 .onChange(of: searchText) { _, newValue in
                                     if newValue.isEmpty {
@@ -76,6 +78,7 @@ struct LedgerView: View {
                                 Button {
                                     searchText = ""
                                     filteredResults = nil
+                                    HapticManager.light()
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .foregroundStyle(KlarColors.secondary)
@@ -96,35 +99,66 @@ struct LedgerView: View {
 
             if transactions.isEmpty {
                 Spacer()
-                VStack(spacing: 12) {
-                    Image(systemName: "list.bullet.rectangle")
-                        .font(.system(size: 48))
-                        .foregroundStyle(KlarColors.inactive)
-                    Text("No transactions yet")
-                        .font(KlarFonts.heading(18))
-                        .foregroundStyle(KlarColors.secondary)
-                    Text("Import a statement to see transactions here.")
-                        .font(KlarFonts.body(14))
-                        .foregroundStyle(KlarColors.inactive)
-                }
+                emptyState
                 Spacer()
             } else {
                 // Transaction Feed
                 ScrollView {
+                    // Pull to refresh indicator
+                    GeometryReader { geo in
+                        let offset = geo.frame(in: .named("scroll")).minY
+                        Color.clear
+                            .preference(key: ScrollOffsetKey.self, value: offset)
+                    }
+                    .frame(height: 0)
+
+                    if isRefreshing {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .tint(KlarColors.accent)
+                            Text("Refreshing...")
+                                .font(KlarFonts.label(12))
+                                .foregroundStyle(KlarColors.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
                     LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
                         ForEach(Array(groupedTransactions.enumerated()), id: \.element.0) { sectionIndex, group in
                             Section {
-                                KlarCard(dashedBorder: true) {
+                                KlarCard {
                                     VStack(spacing: 0) {
                                         ForEach(Array(group.1.enumerated()), id: \.element.id) { rowIndex, transaction in
-                                            let globalIndex = globalIndexFor(sectionIndex: sectionIndex, rowIndex: rowIndex)
-
                                             TransactionRow(
                                                 transaction: transaction,
-                                                index: globalIndex,
+                                                index: globalIndexFor(sectionIndex: sectionIndex, rowIndex: rowIndex),
                                                 isSelectMode: isSelectMode,
                                                 isSelected: selectedTransactions.contains(transaction.id)
                                             )
+                                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                                Button(role: .destructive) {
+                                                    withAnimation {
+                                                        modelContext.delete(transaction)
+                                                        try? modelContext.save()
+                                                    }
+                                                    HapticManager.medium()
+                                                } label: {
+                                                    Label("Delete", systemImage: "trash")
+                                                }
+                                            }
+                                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                                Button {
+                                                    transactionToDelete = nil
+                                                    selectedTransactions = [transaction.id]
+                                                    showCategoryPicker = true
+                                                    HapticManager.light()
+                                                } label: {
+                                                    Label("Category", systemImage: "tag")
+                                                }
+                                                .tint(KlarColors.accent)
+                                            }
                                             .contextMenu {
                                                 Button(role: .destructive) {
                                                     transactionToDelete = transaction
@@ -137,6 +171,7 @@ struct LedgerView: View {
                                                         isSelectMode = true
                                                         selectedTransactions.insert(transaction.id)
                                                     }
+                                                    HapticManager.medium()
                                                 } label: {
                                                     Label("Select", systemImage: "checkmark.circle")
                                                 }
@@ -144,6 +179,7 @@ struct LedgerView: View {
                                             .onTapGesture {
                                                 if isSelectMode {
                                                     toggleSelection(transaction.id)
+                                                    HapticManager.selection()
                                                 }
                                             }
                                             .onLongPressGesture {
@@ -151,14 +187,12 @@ struct LedgerView: View {
                                                     isSelectMode = true
                                                     selectedTransactions.insert(transaction.id)
                                                 }
-                                                let impact = UIImpactFeedbackGenerator(style: .medium)
-                                                impact.impactOccurred()
+                                                HapticManager.medium()
                                             }
 
                                             if rowIndex < group.1.count - 1 {
-                                                Rectangle()
-                                                    .stroke(KlarColors.dashedBorder, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                                                    .frame(height: 1)
+                                                Divider()
+                                                    .background(KlarColors.border)
                                                     .padding(.horizontal, 4)
                                             }
                                         }
@@ -171,6 +205,12 @@ struct LedgerView: View {
                         }
                     }
                     .padding(.bottom, isSelectMode ? 60 : 20)
+                }
+                .coordinateSpace(name: "scroll")
+                .onPreferenceChange(ScrollOffsetKey.self) { offset in
+                    if offset > 80 && !isRefreshing {
+                        triggerRefresh()
+                    }
                 }
             }
 
@@ -186,6 +226,7 @@ struct LedgerView: View {
                 showCategoryPicker = false
                 isSelectMode = false
                 selectedTransactions.removeAll()
+                HapticManager.success()
             }
         }
         .alert("Delete Transaction", isPresented: $showDeleteConfirmation) {
@@ -199,12 +240,49 @@ struct LedgerView: View {
                         try? modelContext.save()
                     }
                     transactionToDelete = nil
+                    HapticManager.medium()
                 }
             }
         } message: {
             if let txn = transactionToDelete {
                 Text("Delete \(txn.merchant) (\(CurrencyHelper.formatSigned(txn.amount)))?")
             }
+        }
+    }
+
+    // MARK: - Empty State
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: -8) {
+                ForEach(["list.bullet.rectangle", "doc.text", "creditcard"], id: \.self) { icon in
+                    Image(systemName: icon)
+                        .font(.system(size: 20))
+                        .frame(width: 44, height: 44)
+                        .background(KlarColors.surfaceElevated)
+                        .clipShape(Circle())
+                }
+            }
+
+            Text("No transactions yet")
+                .font(KlarFonts.heading(18))
+                .foregroundStyle(KlarColors.primary)
+            Text("Import a statement to see transactions here.")
+                .font(KlarFonts.body(14))
+                .foregroundStyle(KlarColors.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 40)
+    }
+
+    // MARK: - Pull to Refresh
+    private func triggerRefresh() {
+        isRefreshing = true
+        HapticManager.light()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            withAnimation(KlarAnimation.springDefault) {
+                isRefreshing = false
+            }
+            HapticManager.success()
         }
     }
 
@@ -298,6 +376,7 @@ struct LedgerView: View {
         try? modelContext.save()
         selectedTransactions.removeAll()
         withAnimation { isSelectMode = false }
+        HapticManager.medium()
     }
 
     private var batchActionBar: some View {
@@ -325,6 +404,7 @@ struct LedgerView: View {
 
             Button("Category") {
                 showCategoryPicker = true
+                HapticManager.light()
             }
             .font(KlarFonts.label(13))
             .foregroundStyle(.white)
@@ -338,6 +418,7 @@ struct LedgerView: View {
                     isSelectMode = false
                     selectedTransactions.removeAll()
                 }
+                HapticManager.light()
             } label: {
                 Image(systemName: "xmark")
                     .foregroundStyle(KlarColors.secondary)
@@ -349,6 +430,15 @@ struct LedgerView: View {
     }
 }
 
+// MARK: - Scroll Offset Preference Key
+struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+// MARK: - Transaction Row (Task 9: Redesigned)
 struct TransactionRow: View {
     let transaction: Transaction
     let index: Int
@@ -363,42 +453,50 @@ struct TransactionRow: View {
                     .font(.system(size: 20))
             }
 
-            // Index + Merchant
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(String(format: "%02d.", index))
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .foregroundStyle(KlarColors.primary)
-                    Text(transaction.merchant.uppercased())
-                        .font(KlarFonts.heading(16))
-                        .foregroundStyle(KlarColors.primary)
-                }
+            // Category icon
+            let catColor = KlarColors.categoryColor(for: transaction.category)
+            RoundedRectangle(cornerRadius: 8)
+                .fill(catColor.opacity(0.12))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: categorySymbol(for: transaction.category))
+                        .font(.system(size: 14))
+                        .foregroundStyle(catColor)
+                )
 
-                let catColor = KlarColors.categoryColor(for: transaction.category)
-                Text(transaction.category)
-                    .font(KlarFonts.label(12))
-                    .foregroundStyle(catColor)
+            // Merchant + category pill
+            VStack(alignment: .leading, spacing: 4) {
+                Text(transaction.merchant.uppercased())
+                    .font(KlarFonts.label(13))
+                    .fontWeight(.bold)
+                    .foregroundStyle(KlarColors.primary)
+                    .lineLimit(1)
+
+                CategoryPill(name: transaction.category, color: catColor)
             }
 
             Spacer()
 
-            // Notes/description
-            if let notes = transaction.notes, !notes.isEmpty {
-                Text(notes.uppercased())
+            // Amount + date
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(CurrencyHelper.formatSigned(transaction.amount))
+                    .font(KlarFonts.label(14))
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+                    .foregroundStyle(transaction.amount >= 0 ? KlarColors.positive : KlarColors.negative)
+
+                Text(formatDate(transaction.date))
                     .font(KlarFonts.label(10))
                     .foregroundStyle(KlarColors.secondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 90)
             }
-
-            // Amount
-            Text(CurrencyHelper.formatSigned(transaction.amount))
-                .font(KlarFonts.heading(16))
-                .monospacedDigit()
-                .foregroundStyle(transaction.amount >= 0 ? KlarColors.positive : KlarColors.negative)
         }
         .padding(.vertical, 10)
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "dd MMM"
+        return f.string(from: date)
     }
 
     private func categorySymbol(for category: String) -> String {
@@ -443,6 +541,7 @@ struct CategoryPickerSheet: View {
                 ForEach(displayCategories, id: \.name) { cat in
                     Button {
                         onSelect(cat.name)
+                        HapticManager.medium()
                     } label: {
                         VStack(spacing: 8) {
                             RoundedRectangle(cornerRadius: 12)

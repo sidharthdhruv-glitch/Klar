@@ -21,6 +21,8 @@ struct ImportHubView: View {
     @State private var parseErrorMessage = ""
     @State private var currentParsingAccount = ""
     @State private var currentImportSource: ImportSource = .csv
+    @State private var dropZoneIconOffset: CGFloat = 0
+    @State private var dropZonePulsing = false
 
     var body: some View {
         ScrollView {
@@ -32,13 +34,13 @@ struct ImportHubView: View {
                             .font(KlarFonts.display(32))
                             .foregroundStyle(KlarColors.primary)
                         Text("HUB")
-                            .font(.system(size: 32, weight: .black, design: .serif))
-                            .italic()
+                            .font(KlarFonts.serifItalic(32))
                             .foregroundStyle(KlarColors.secondary)
                     }
 
                     Text("UPLOAD FILES")
-                        .font(KlarFonts.heading(20))
+                        .font(KlarFonts.cardTitle())
+                        .tracking(1.5)
                         .foregroundStyle(KlarColors.primary)
 
                     Text("Upload a csv, pdf, or photo of receipt.\nParsed transactions go to your inbox for\nreview before being added.")
@@ -49,18 +51,20 @@ struct ImportHubView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 16)
 
-                // Drop Zone
+                // Drop Zone (Task 20: animated)
                 dropZone
                     .padding(.horizontal, 20)
+                    .staggeredAppearance(index: 0)
 
-                // Account Name Field
-                KlarCard(dashedBorder: true) {
+                // Account Name Field with SlidingPicker (Task 24)
+                KlarCard {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 8) {
                             Image(systemName: "creditcard.fill")
                                 .foregroundStyle(KlarColors.secondary)
                             Text("ACCOUNT NAME")
-                                .font(KlarFonts.heading(16))
+                                .font(KlarFonts.cardTitle())
+                                .tracking(1.5)
                                 .foregroundStyle(KlarColors.primary)
                         }
 
@@ -71,38 +75,17 @@ struct ImportHubView: View {
                             .background(KlarColors.surfaceElevated)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
 
-                        // Account type picker
-                        HStack(spacing: 0) {
-                            ForEach(AccountType.allCases, id: \.self) { type in
-                                Button {
-                                    withAnimation(.spring(response: 0.3)) {
-                                        selectedAccountType = type
-                                    }
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: type == .savings ? "banknote" : type == .credit ? "creditcard" : "wallet.pass")
-                                            .font(.system(size: 10))
-                                        Text(type.rawValue.uppercased())
-                                            .font(KlarFonts.label(11))
-                                            .tracking(0.5)
-                                    }
-                                    .foregroundStyle(selectedAccountType == type ? .white : KlarColors.secondary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(selectedAccountType == type ? KlarColors.primary : Color.clear)
-                                    .clipShape(Capsule())
-                                }
-                            }
-                        }
-                        .background(KlarColors.surfaceElevated)
-                        .clipShape(Capsule())
+                        // SlidingPicker replaces old segmented picker
+                        SlidingPicker(selection: $selectedAccountType)
 
                         Text("Labels where each transaction came from.")
                             .font(KlarFonts.label(11))
                             .foregroundStyle(KlarColors.secondary)
                     }
                 }
+                .pressableCard()
                 .padding(.horizontal, 20)
+                .staggeredAppearance(index: 1)
 
                 // Uploads Section
                 if !uploads.isEmpty {
@@ -116,11 +99,13 @@ struct ImportHubView: View {
                             }
                         }
                     }
+                    .staggeredAppearance(index: 2)
                 }
 
                 // Pending transactions review
                 if !pendingTransactions.isEmpty {
                     pendingReviewSection
+                        .staggeredAppearance(index: 3)
                 }
 
                 Spacer(minLength: 20)
@@ -147,17 +132,22 @@ struct ImportHubView: View {
         } message: {
             Text(parseErrorMessage)
         }
+        .onAppear {
+            startDropZoneAnimation()
+        }
     }
 
-    // MARK: - Drop Zone
+    // MARK: - Animated Drop Zone (Task 20)
     private var dropZone: some View {
         Button {
             showDocumentPicker = true
+            HapticManager.medium()
         } label: {
             VStack(spacing: 14) {
                 Image(systemName: "arrow.up.doc")
                     .font(.system(size: 36))
                     .foregroundStyle(KlarColors.primary)
+                    .offset(y: dropZoneIconOffset)
 
                 Text("DROP YOUR FILES HERE OR BROWSE")
                     .font(KlarFonts.label(13))
@@ -178,15 +168,29 @@ struct ImportHubView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
                     .stroke(
-                        KlarColors.dashedBorder,
-                        style: StrokeStyle(lineWidth: 2, dash: [6, 4])
+                        KlarColors.border,
+                        lineWidth: dropZonePulsing ? 2.5 : 1.5
                     )
+                    .opacity(dropZonePulsing ? 0.8 : 0.5)
             )
         }
         .dropDestination(for: Data.self) { items, location in
+            HapticManager.success()
             return true
         } isTargeted: { targeted in
             isDragTargeted = targeted
+            if targeted { HapticManager.light() }
+        }
+    }
+
+    private func startDropZoneAnimation() {
+        // Floating icon animation
+        withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
+            dropZoneIconOffset = -6
+        }
+        // Pulsing border
+        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+            dropZonePulsing = true
         }
     }
 
@@ -219,6 +223,7 @@ struct ImportHubView: View {
 
             Button {
                 uploads.removeAll { $0.id == entry.id }
+                HapticManager.light()
             } label: {
                 Image(systemName: "trash")
                     .foregroundStyle(KlarColors.secondary)
@@ -228,10 +233,6 @@ struct ImportHubView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(KlarColors.surface)
-        .overlay(
-            Rectangle()
-                .stroke(KlarColors.dashedBorder, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-        )
     }
 
     // MARK: - Pending Review Section
@@ -242,6 +243,7 @@ struct ImportHubView: View {
                 Spacer()
                 Button {
                     addAllPendingTransactions()
+                    HapticManager.success()
                 } label: {
                     Text("ADD ALL")
                         .font(KlarFonts.label(12))
@@ -304,12 +306,14 @@ struct ImportHubView: View {
                 HStack(spacing: 4) {
                     Button {
                         addSingleTransaction(row, at: index)
+                        HapticManager.success()
                     } label: {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(KlarColors.positive)
                     }
                     Button {
                         pendingTransactions.remove(at: index)
+                        HapticManager.light()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(KlarColors.negative)
@@ -357,13 +361,11 @@ struct ImportHubView: View {
         let parser = StatementParser()
         do {
             let result = try await parser.parseFile(at: url, accountName: account)
-            // Print debug log to Xcode console for diagnosis
             if !result.debugLog.isEmpty {
                 print("=== Import Debug Log ===")
                 for entry in result.debugLog { print(entry) }
                 print("========================")
             }
-            let rulesArray = Array(rules)
 
             await MainActor.run {
                 if result.transactions.isEmpty {
@@ -375,7 +377,6 @@ struct ImportHubView: View {
                         showParseError = true
                     }
                 } else {
-                    // Check for duplicates
                     let duplicates = DuplicateDetector.findDuplicates(
                         newTransactions: result.transactions,
                         existing: Array(existingTransactions)
@@ -398,6 +399,7 @@ struct ImportHubView: View {
                             message: "\(result.transactions.count) transactions parsed",
                             count: result.transactions.count)
                     }
+                    HapticManager.success()
                 }
             }
         } catch {
@@ -406,6 +408,7 @@ struct ImportHubView: View {
                     message: error.localizedDescription, count: 0)
                 parseErrorMessage = error.localizedDescription
                 showParseError = true
+                HapticManager.error()
             }
         }
     }

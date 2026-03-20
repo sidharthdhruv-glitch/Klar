@@ -6,6 +6,12 @@ struct VisualizerView: View {
     @Query(sort: \Transaction.date, order: .reverse) private var transactions: [Transaction]
     @Query private var subscriptions: [Subscription]
     @State private var selectedMonthOffset: Int = 0
+    @State private var viewMode: VisualizerMode = .categories
+
+    enum VisualizerMode: String, CaseIterable {
+        case categories = "Categories"
+        case flow = "Flow"
+    }
 
     private var availableMonths: [(month: Int, year: Int, label: String)] {
         let cal = Calendar.current
@@ -106,8 +112,7 @@ struct VisualizerView: View {
                 // Header
                 HStack(spacing: 0) {
                     Text("THE ")
-                        .font(.system(size: 28, weight: .bold, design: .serif))
-                        .italic()
+                        .font(KlarFonts.serifItalic(28))
                         .foregroundStyle(KlarColors.secondary)
                     Text("VISUALIZER")
                         .font(KlarFonts.display(28))
@@ -124,9 +129,10 @@ struct VisualizerView: View {
                     if availableMonths.count > 1 {
                         HStack {
                             Button {
-                                withAnimation {
+                                withAnimation(KlarAnimation.springDefault) {
                                     selectedMonthOffset = min(selectedMonthOffset + 1, availableMonths.count - 1)
                                 }
+                                HapticManager.light()
                             } label: {
                                 Image(systemName: "chevron.left")
                                     .font(.system(size: 14, weight: .semibold))
@@ -138,12 +144,14 @@ struct VisualizerView: View {
                             Text(selectedMonthName)
                                 .font(KlarFonts.heading(16))
                                 .foregroundStyle(KlarColors.primary)
+                                .contentTransition(.numericText())
                             Spacer()
 
                             Button {
-                                withAnimation {
+                                withAnimation(KlarAnimation.springDefault) {
                                     selectedMonthOffset = max(selectedMonthOffset - 1, 0)
                                 }
+                                HapticManager.light()
                             } label: {
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 14, weight: .semibold))
@@ -154,53 +162,79 @@ struct VisualizerView: View {
                         .padding(.horizontal, 20)
                     }
 
-                    // Monthly Spending Gauge
-                    KlarCard(dashedBorder: true) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("MONTHLY BUDGET (\(selectedMonthShortName))")
-                                .font(KlarFonts.heading(18))
-                                .foregroundStyle(KlarColors.primary)
-
-                            if !categorySpend.isEmpty {
-                                SpendingGauge(
-                                    spent: totalExpense,
-                                    budget: max(totalIncome, totalExpense),
-                                    segments: categorySpend.map { name, value in
-                                        SpendingGaugeSegment(label: name, value: value, color: KlarColors.categoryColor(for: name))
-                                    }
-                                )
-                            }
-
-                            if totalIncome > 0 {
-                                HStack {
-                                    Image(systemName: "arrow.down.circle.fill")
-                                        .foregroundStyle(KlarColors.positive)
-                                        .font(.system(size: 14))
-                                    Text("INCOME")
-                                        .font(KlarFonts.label(11))
-                                        .foregroundStyle(KlarColors.secondary)
-                                    Text(CurrencyHelper.format(totalIncome))
-                                        .font(KlarFonts.label(13))
-                                        .monospacedDigit()
-                                        .foregroundStyle(KlarColors.positive)
-                                    Spacer()
-                                    let remaining = totalIncome - totalExpense
-                                    Image(systemName: "banknote")
-                                        .foregroundStyle(remaining >= 0 ? KlarColors.positive : KlarColors.negative)
-                                        .font(.system(size: 14))
-                                    Text("SAVED")
-                                        .font(KlarFonts.label(11))
-                                        .foregroundStyle(KlarColors.secondary)
-                                    Text(CurrencyHelper.format(remaining))
-                                        .font(KlarFonts.label(13))
-                                        .monospacedDigit()
-                                        .foregroundStyle(remaining >= 0 ? KlarColors.positive : KlarColors.negative)
+                    // View Mode Toggle (Task 16)
+                    HStack(spacing: 0) {
+                        ForEach(VisualizerMode.allCases, id: \.self) { mode in
+                            Button {
+                                withAnimation(KlarAnimation.springDefault) {
+                                    viewMode = mode
                                 }
-                                .padding(.horizontal, 4)
+                                HapticManager.light()
+                            } label: {
+                                Text(mode.rawValue.uppercased())
+                                    .font(KlarFonts.label(12))
+                                    .tracking(0.5)
+                                    .foregroundStyle(viewMode == mode ? KlarColors.primary : KlarColors.secondary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(viewMode == mode ? KlarColors.surface : .clear)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
                         }
                     }
+                    .background(KlarColors.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                     .padding(.horizontal, 20)
+
+                    if viewMode == .categories {
+                        // Monthly Spending Gauge
+                        KlarCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("MONTHLY BUDGET (\(selectedMonthShortName))")
+                                    .font(KlarFonts.cardTitle())
+                                    .tracking(1.5)
+                                    .foregroundStyle(KlarColors.primary)
+
+                                if !categorySpend.isEmpty {
+                                    SpendingGauge(
+                                        spent: totalExpense,
+                                        budget: max(totalIncome, totalExpense),
+                                        segments: categorySpend.map { name, value in
+                                            SpendingGaugeSegment(label: name, value: value, color: KlarColors.categoryColor(for: name))
+                                        }
+                                    )
+                                }
+
+                                if totalIncome > 0 {
+                                    incomeRow
+                                }
+                            }
+                        }
+                        .pressableCard()
+                        .padding(.horizontal, 20)
+                        .staggeredAppearance(index: 0)
+                    } else {
+                        // Sankey / Flow view (Task 16)
+                        KlarCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("MONEY FLOW (\(selectedMonthShortName))")
+                                    .font(KlarFonts.cardTitle())
+                                    .tracking(1.5)
+                                    .foregroundStyle(KlarColors.primary)
+
+                                SankeyDiagram(
+                                    income: totalIncome,
+                                    categories: categorySpend.map { name, value in
+                                        SankeyNode(label: name, value: value, color: KlarColors.categoryColor(for: name))
+                                    }
+                                )
+                                .frame(height: CGFloat(categorySpend.count + 1) * 36 + 50)
+                            }
+                        }
+                        .pressableCard()
+                        .padding(.horizontal, 20)
+                        .staggeredAppearance(index: 0)
+                    }
 
                     // Spending Trends
                     SpendingTrendsView(
@@ -208,11 +242,15 @@ struct VisualizerView: View {
                         selectedMonth: selectedMonth.month,
                         selectedYear: selectedMonth.year
                     )
+                    .pressableCard()
                     .padding(.horizontal, 20)
+                    .staggeredAppearance(index: 1)
 
                     // Subscription Audit
                     SubscriptionAuditView()
+                        .pressableCard()
                         .padding(.horizontal, 20)
+                        .staggeredAppearance(index: 2)
                 }
 
                 Spacer(minLength: 20)
@@ -224,17 +262,52 @@ struct VisualizerView: View {
         }
     }
 
+    private var incomeRow: some View {
+        HStack {
+            Image(systemName: "arrow.down.circle.fill")
+                .foregroundStyle(KlarColors.positive)
+                .font(.system(size: 14))
+            Text("INCOME")
+                .font(KlarFonts.label(11))
+                .foregroundStyle(KlarColors.secondary)
+            Text(CurrencyHelper.format(totalIncome))
+                .font(KlarFonts.label(13))
+                .monospacedDigit()
+                .foregroundStyle(KlarColors.positive)
+            Spacer()
+            let remaining = totalIncome - totalExpense
+            Image(systemName: "banknote")
+                .foregroundStyle(remaining >= 0 ? KlarColors.positive : KlarColors.negative)
+                .font(.system(size: 14))
+            Text("SAVED")
+                .font(KlarFonts.label(11))
+                .foregroundStyle(KlarColors.secondary)
+            Text(CurrencyHelper.format(remaining))
+                .font(KlarFonts.label(13))
+                .monospacedDigit()
+                .foregroundStyle(remaining >= 0 ? KlarColors.positive : KlarColors.negative)
+        }
+        .padding(.horizontal, 4)
+    }
+
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Image(systemName: "chart.bar.xaxis")
-                .font(.system(size: 48))
-                .foregroundStyle(KlarColors.inactive)
+            HStack(spacing: -8) {
+                ForEach(["chart.bar.xaxis", "chart.pie", "waveform.path.ecg"], id: \.self) { icon in
+                    Image(systemName: icon)
+                        .font(.system(size: 20))
+                        .frame(width: 44, height: 44)
+                        .background(KlarColors.surfaceElevated)
+                        .clipShape(Circle())
+                }
+            }
+
             Text("No data to visualize")
                 .font(KlarFonts.heading(18))
-                .foregroundStyle(KlarColors.secondary)
+                .foregroundStyle(KlarColors.primary)
             Text("Import transactions to see your spending visualized here.")
                 .font(KlarFonts.body(14))
-                .foregroundStyle(KlarColors.inactive)
+                .foregroundStyle(KlarColors.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 40)
@@ -257,5 +330,4 @@ struct VisualizerView: View {
             }
         }
     }
-
 }

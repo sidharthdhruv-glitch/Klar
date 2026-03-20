@@ -24,7 +24,7 @@ struct SpendingTrendsView: View {
         let cal = Calendar.current
 
         let monthExpenses = transactions.filter {
-            $0.type == .expense &&
+            $0.amount < 0 &&
             cal.component(.month, from: $0.date) == selectedMonth &&
             cal.component(.year, from: $0.date) == selectedYear
         }
@@ -82,7 +82,7 @@ struct SpendingTrendsView: View {
             let y = cal.component(.year, from: targetDate)
 
             let monthExpenses = transactions.filter {
-                $0.type == .expense &&
+                $0.amount < 0 &&
                 cal.component(.month, from: $0.date) == m &&
                 cal.component(.year, from: $0.date) == y
             }
@@ -142,7 +142,7 @@ struct SpendingTrendsView: View {
         for daysAgo in stride(from: 6, through: 0, by: -1) {
             let day = cal.date(byAdding: .day, value: -daysAgo, to: referenceDate)!
             let dayTotal = transactions.filter { txn in
-                txn.type == .expense && cal.isDate(txn.date, inSameDayAs: day)
+                txn.amount < 0 && cal.isDate(txn.date, inSameDayAs: day)
             }.reduce(0) { $0 + abs($1.amount) }
             let index = 7 - daysAgo
             result.append(ChartDataPoint(id: index, day: index, amount: dayTotal))
@@ -158,7 +158,7 @@ struct SpendingTrendsView: View {
     }
 
     var body: some View {
-        KlarCard(dashedBorder: true) {
+        KlarCard {
             VStack(alignment: .leading, spacing: 16) {
                 SectionHeader(title: "SPENDING TRENDS")
 
@@ -297,7 +297,8 @@ struct SpendingTrendsView: View {
 
     private func tabButton(_ title: String, index: Int) -> some View {
         Button {
-            withAnimation { selectedTab = index }
+            withAnimation(KlarAnimation.springDefault) { selectedTab = index }
+            HapticManager.light()
         } label: {
             Text(title)
                 .font(KlarFonts.label(12))
