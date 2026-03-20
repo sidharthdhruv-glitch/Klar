@@ -151,7 +151,7 @@ struct NetFlowChart: View {
         return (0...steps).map { i in
             let x = width * CGFloat(i) / CGFloat(steps)
             let progress = CGFloat(i) / CGFloat(steps)
-            let wave = sin(progress * .pi * 2.5 + CGFloat(seed) * 1.5) * amplitude
+            let wave = CoreGraphics.sin(progress * .pi * 2.5 + CGFloat(seed) * 1.5) * amplitude
             let trend = (seed == 1) ? -progress * amplitude * 0.5 : progress * amplitude * 0.3
             return CGPoint(x: x, y: offset + wave + trend)
         }

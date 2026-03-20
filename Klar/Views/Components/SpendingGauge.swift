@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreGraphics
 
 struct SpendingGaugeSegment: Identifiable {
     let id = UUID()
@@ -156,8 +157,8 @@ struct SpendingGauge: View {
 
     private func pointOnCircle(center: CGPoint, radius: CGFloat, angle: Angle) -> CGPoint {
         CGPoint(
-            x: center.x + radius * cos(angle.radians),
-            y: center.y + radius * sin(angle.radians)
+            x: center.x + radius * CoreGraphics.cos(angle.radians),
+            y: center.y + radius * CoreGraphics.sin(angle.radians)
         )
     }
 }
