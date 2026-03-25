@@ -24,6 +24,12 @@ struct ImportHubView: View {
     @State private var dropZoneIconOffset: CGFloat = 0
     @State private var dropZonePulsing = false
 
+    // Excel/CSV import states
+    @State private var showExcelPicker = false
+    @State private var excelImportWarnings: [String] = []
+    @State private var showImportWarnings = false
+    @State private var importSkippedRows = 0
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -43,7 +49,7 @@ struct ImportHubView: View {
                         .tracking(1.5)
                         .foregroundStyle(KlarColors.primary)
 
-                    Text("Upload a csv, pdf, or photo of receipt.\nParsed transactions go to your inbox for\nreview before being added.")
+                    Text("Upload csv, xlsx, pdf, or photo of receipt.\nParsed transactions go to your inbox for\nreview before being added.")
                         .font(KlarFonts.body(14))
                         .foregroundStyle(KlarColors.secondary)
                         .multilineTextAlignment(.center)
@@ -55,6 +61,10 @@ struct ImportHubView: View {
                 dropZone
                     .padding(.horizontal, 20)
                     .staggeredAppearance(index: 0)
+
+                // Excel/CSV Import Button
+                excelImportButton
+                    .padding(.horizontal, 20)
 
                 // Account Name Field with SlidingPicker (Task 24)
                 KlarCard {
@@ -127,6 +137,19 @@ struct ImportHubView: View {
         ) { result in
             handleFileImport(result)
         }
+        .fileImporter(
+            isPresented: $showExcelPicker,
+            allowedContentTypes: ImportService.supportedTypes,
+            allowsMultipleSelection: true
+        ) { result in
+            handleExcelImport(result)
+        }
+        .alert("Import Warnings", isPresented: $showImportWarnings) {
+            Button("OK") {}
+        } message: {
+            Text(excelImportWarnings.joined(separator: "\n")
+                + (importSkippedRows > 0 ? "\n\(importSkippedRows) rows skipped." : ""))
+        }
         .alert("Parse Error", isPresented: $showParseError) {
             Button("OK") {}
         } message: {
@@ -198,12 +221,12 @@ struct ImportHubView: View {
     private func uploadRow(_ entry: UploadEntry) -> some View {
         HStack(spacing: 14) {
             RoundedRectangle(cornerRadius: 8)
-                .fill(entry.fileType == "PDF" ? Color.red.opacity(0.1) : KlarColors.positive.opacity(0.1))
+                .fill(uploadBadgeColor(entry.fileType).opacity(0.1))
                 .frame(width: 44, height: 44)
                 .overlay(
                     Text(entry.fileType)
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(entry.fileType == "PDF" ? .red : KlarColors.positive)
+                        .foregroundStyle(uploadBadgeColor(entry.fileType))
                 )
 
             VStack(alignment: .leading, spacing: 4) {
@@ -326,7 +349,137 @@ struct ImportHubView: View {
         .background(KlarColors.surface)
     }
 
-    // MARK: - File Import Handler
+    // MARK: - Excel Import Button
+    private var excelImportButton: some View {
+        Button {
+            showExcelPicker = true
+            HapticManager.medium()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "tablecells.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(KlarColors.accent)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("IMPORT EXCEL / CSV")
+                        .font(KlarFonts.label(13))
+                        .fontWeight(.bold)
+                        .foregroundStyle(KlarColors.primary)
+                    Text("XLSX, XLS, CSV — Bank statements")
+                        .font(KlarFonts.label(10))
+                        .foregroundStyle(KlarColors.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(KlarColors.secondary)
+            }
+            .padding(16)
+            .background(KlarColors.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(KlarColors.border, lineWidth: 1)
+            )
+        }
+    }
+
+    // MARK: - Excel Import Handler
+    private func handleExcelImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            for url in urls {
+                let name = url.lastPathComponent
+                let ext = url.pathExtension.uppercased()
+                let entryId = UUID()
+
+                let fileType: String
+                switch ext {
+                case "XLSX", "XLS": fileType = "XLS"
+                case "CSV", "TXT": fileType = "CSV"
+                default: fileType = "XLS"
+                }
+
+                let entry = UploadEntry(
+                    id: entryId,
+                    name: name,
+                    fileType: fileType,
+                    status: .parsing,
+                    statusMessage: "Parsing...",
+                    transactionCount: 0
+                )
+                uploads.append(entry)
+
+                currentParsingAccount = accountName.isEmpty ? "Imported" : accountName
+
+                Task {
+                    await parseExcelFileAsync(url: url, entryId: entryId, account: currentParsingAccount)
+                }
+            }
+        case .failure(let error):
+            parseErrorMessage = error.localizedDescription
+            showParseError = true
+        }
+    }
+
+    private func parseExcelFileAsync(url: URL, entryId: UUID, account: String) async {
+        let service = ImportService()
+        do {
+            let result = try await service.importFile(at: url)
+
+            await MainActor.run {
+                if result.transactions.isEmpty {
+                    updateUploadEntry(entryId, status: .needsReview,
+                        message: "No transactions found",
+                        count: 0)
+                    parseErrorMessage = "No transactions could be parsed from the file."
+                    showParseError = true
+                } else {
+                    let duplicates = DuplicateDetector.findDuplicates(
+                        newTransactions: result.transactions,
+                        existing: Array(existingTransactions)
+                    )
+
+                    let duplicateIDs = Set(duplicates.map { $0.new.id })
+                    let nonDuplicates = result.transactions.filter { !duplicateIDs.contains($0.id) }
+
+                    currentImportSource = result.source
+                    pendingTransactions.append(contentsOf: nonDuplicates)
+
+                    if !result.warnings.isEmpty || result.skippedRows > 0 {
+                        excelImportWarnings = result.warnings
+                        importSkippedRows = result.skippedRows
+                        showImportWarnings = true
+                    }
+
+                    if !duplicates.isEmpty {
+                        conflictPairs = duplicates
+                        updateUploadEntry(entryId, status: .needsReview,
+                            message: "\(result.transactions.count) parsed, \(duplicates.count) potential duplicates",
+                            count: result.transactions.count)
+                        showConflictResolver = true
+                    } else {
+                        updateUploadEntry(entryId, status: .success,
+                            message: "\(result.transactions.count) transactions parsed",
+                            count: result.transactions.count)
+                    }
+                    HapticManager.success()
+                }
+            }
+        } catch {
+            await MainActor.run {
+                updateUploadEntry(entryId, status: .needsReview,
+                    message: error.localizedDescription, count: 0)
+                parseErrorMessage = error.localizedDescription
+                showParseError = true
+                HapticManager.error()
+            }
+        }
+    }
+
+    // MARK: - File Import Handler (PDF)
     private func handleFileImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
@@ -490,6 +643,14 @@ struct ImportHubView: View {
         let f = DateFormatter()
         f.dateFormat = "dd MMM yyyy"
         return f.string(from: date)
+    }
+
+    private func uploadBadgeColor(_ fileType: String) -> Color {
+        switch fileType {
+        case "PDF": return .red
+        case "XLS": return .green
+        default: return KlarColors.positive
+        }
     }
 
     private func categorySymbol(for category: String) -> String {

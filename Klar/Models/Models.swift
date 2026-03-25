@@ -9,6 +9,7 @@ enum TransactionType: String, Codable, CaseIterable {
 enum ImportSource: String, Codable, CaseIterable {
     case csv
     case pdf
+    case xlsx
     case manual
 }
 
