@@ -33,6 +33,18 @@
 		AA000024 /* StatementParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000024; };
 		AA000025 /* SpendingGauge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000025; };
 		AA000026 /* HapticManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000026; };
+		AA000027 /* KlarChartStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000027; };
+		AA000028 /* ChartDataModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000028; };
+		AA000029 /* HorizontalCategoryBars.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000029; };
+		AA000030 /* WaterfallChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000030; };
+		AA000031 /* ProgressRingStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000031; };
+		AA000032 /* SparklineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000032; };
+		AA000033 /* SankeyDiagramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000033; };
+		AA000034 /* CalendarHeatmap.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000034; };
+		AA000035 /* StackedAreaSpending.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000035; };
+		AA000036 /* WeeklyRhythmBars.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000036; };
+		AA000037 /* BumpChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000037; };
+		AA000038 /* MonthComparisonBars.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000038; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -62,6 +74,18 @@
 		BB000024 /* StatementParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementParser.swift; sourceTree = "<group>"; };
 		BB000025 /* SpendingGauge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingGauge.swift; sourceTree = "<group>"; };
 		BB000026 /* HapticManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticManager.swift; sourceTree = "<group>"; };
+		BB000027 /* KlarChartStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KlarChartStyle.swift; sourceTree = "<group>"; };
+		BB000028 /* ChartDataModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartDataModels.swift; sourceTree = "<group>"; };
+		BB000029 /* HorizontalCategoryBars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalCategoryBars.swift; sourceTree = "<group>"; };
+		BB000030 /* WaterfallChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterfallChart.swift; sourceTree = "<group>"; };
+		BB000031 /* ProgressRingStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressRingStack.swift; sourceTree = "<group>"; };
+		BB000032 /* SparklineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparklineView.swift; sourceTree = "<group>"; };
+		BB000033 /* SankeyDiagramView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SankeyDiagramView.swift; sourceTree = "<group>"; };
+		BB000034 /* CalendarHeatmap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarHeatmap.swift; sourceTree = "<group>"; };
+		BB000035 /* StackedAreaSpending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackedAreaSpending.swift; sourceTree = "<group>"; };
+		BB000036 /* WeeklyRhythmBars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyRhythmBars.swift; sourceTree = "<group>"; };
+		BB000037 /* BumpChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BumpChart.swift; sourceTree = "<group>"; };
+		BB000038 /* MonthComparisonBars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonthComparisonBars.swift; sourceTree = "<group>"; };
 		CC000001 /* Klar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Klar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -102,6 +126,7 @@
 			children = (
 				BB000003 /* Models.swift */,
 				BB000004 /* MockData.swift */,
+				BB000028 /* ChartDataModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -113,6 +138,7 @@
 				BB000006 /* CurrencyFormatter.swift */,
 				BB000024 /* StatementParser.swift */,
 				BB000026 /* HapticManager.swift */,
+				BB000027 /* KlarChartStyle.swift */,
 			);
 			path = Helpers;
 			sourceTree = "<group>";
@@ -150,6 +176,16 @@
 				BB000014 /* DonutChart.swift */,
 				BB000015 /* SankeyDiagram.swift */,
 				BB000025 /* SpendingGauge.swift */,
+				BB000029 /* HorizontalCategoryBars.swift */,
+				BB000030 /* WaterfallChart.swift */,
+				BB000031 /* ProgressRingStack.swift */,
+				BB000032 /* SparklineView.swift */,
+				BB000033 /* SankeyDiagramView.swift */,
+				BB000034 /* CalendarHeatmap.swift */,
+				BB000035 /* StackedAreaSpending.swift */,
+				BB000036 /* WeeklyRhythmBars.swift */,
+				BB000037 /* BumpChart.swift */,
+				BB000038 /* MonthComparisonBars.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -291,6 +327,18 @@
 				AA000024 /* StatementParser.swift in Sources */,
 				AA000025 /* SpendingGauge.swift in Sources */,
 				AA000026 /* HapticManager.swift in Sources */,
+				AA000027 /* KlarChartStyle.swift in Sources */,
+				AA000028 /* ChartDataModels.swift in Sources */,
+				AA000029 /* HorizontalCategoryBars.swift in Sources */,
+				AA000030 /* WaterfallChart.swift in Sources */,
+				AA000031 /* ProgressRingStack.swift in Sources */,
+				AA000032 /* SparklineView.swift in Sources */,
+				AA000033 /* SankeyDiagramView.swift in Sources */,
+				AA000034 /* CalendarHeatmap.swift in Sources */,
+				AA000035 /* StackedAreaSpending.swift in Sources */,
+				AA000036 /* WeeklyRhythmBars.swift in Sources */,
+				AA000037 /* BumpChart.swift in Sources */,
+				AA000038 /* MonthComparisonBars.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
