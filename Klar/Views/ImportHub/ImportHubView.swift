@@ -23,12 +23,18 @@ struct ImportHubView: View {
     @State private var currentImportSource: ImportSource = .csv
     @State private var dropZoneIconOffset: CGFloat = 0
     @State private var dropZonePulsing = false
-
-    // Excel/CSV import states
-    @State private var showExcelPicker = false
     @State private var excelImportWarnings: [String] = []
     @State private var showImportWarnings = false
     @State private var importSkippedRows = 0
+
+    /// All file types the unified picker accepts: PDF, CSV, XLSX, XLS
+    private static let allSupportedTypes: [UTType] = {
+        var types: [UTType] = [.pdf, .commaSeparatedText]
+        if let xlsx = UTType("org.openxmlformats.spreadsheetml.sheet") { types.append(xlsx) }
+        if let xls = UTType("com.microsoft.excel.xls") { types.append(xls) }
+        types.append(.spreadsheet)
+        return types
+    }()
 
     var body: some View {
         ScrollView {
@@ -61,10 +67,6 @@ struct ImportHubView: View {
                 dropZone
                     .padding(.horizontal, 20)
                     .staggeredAppearance(index: 0)
-
-                // Excel/CSV Import Button
-                excelImportButton
-                    .padding(.horizontal, 20)
 
                 // Account Name Field with SlidingPicker (Task 24)
                 KlarCard {
@@ -132,17 +134,10 @@ struct ImportHubView: View {
         }
         .fileImporter(
             isPresented: $showDocumentPicker,
-            allowedContentTypes: [.pdf, .commaSeparatedText],
+            allowedContentTypes: Self.allSupportedTypes,
             allowsMultipleSelection: true
         ) { result in
             handleFileImport(result)
-        }
-        .fileImporter(
-            isPresented: $showExcelPicker,
-            allowedContentTypes: ImportService.supportedTypes,
-            allowsMultipleSelection: true
-        ) { result in
-            handleExcelImport(result)
         }
         .alert("Import Warnings", isPresented: $showImportWarnings) {
             Button("OK") {}
@@ -177,7 +172,7 @@ struct ImportHubView: View {
                     .tracking(1)
                     .foregroundStyle(KlarColors.primary)
 
-                Text("MAX FILE SIZE UPTO 100MB")
+                Text("PDF • CSV • XLSX • XLS")
                     .font(KlarFonts.label(10))
                     .tracking(0.5)
                     .foregroundStyle(KlarColors.secondary)
@@ -349,57 +344,21 @@ struct ImportHubView: View {
         .background(KlarColors.surface)
     }
 
-    // MARK: - Excel Import Button
-    private var excelImportButton: some View {
-        Button {
-            showExcelPicker = true
-            HapticManager.medium()
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "tablecells.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(KlarColors.accent)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("IMPORT EXCEL / CSV")
-                        .font(KlarFonts.label(13))
-                        .fontWeight(.bold)
-                        .foregroundStyle(KlarColors.primary)
-                    Text("XLSX, XLS, CSV — Bank statements")
-                        .font(KlarFonts.label(10))
-                        .foregroundStyle(KlarColors.secondary)
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(KlarColors.secondary)
-            }
-            .padding(16)
-            .background(KlarColors.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(KlarColors.border, lineWidth: 1)
-            )
-        }
-    }
-
-    // MARK: - Excel Import Handler
-    private func handleExcelImport(_ result: Result<[URL], Error>) {
+    // MARK: - Unified File Import Handler
+    private func handleFileImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             for url in urls {
                 let name = url.lastPathComponent
                 let ext = url.pathExtension.uppercased()
                 let entryId = UUID()
+                let isExcelFile = ext == "XLSX" || ext == "XLS"
 
                 let fileType: String
                 switch ext {
+                case "PDF": fileType = "PDF"
                 case "XLSX", "XLS": fileType = "XLS"
-                case "CSV", "TXT": fileType = "CSV"
-                default: fileType = "XLS"
+                default: fileType = "CSV"
                 }
 
                 let entry = UploadEntry(
@@ -414,8 +373,16 @@ struct ImportHubView: View {
 
                 currentParsingAccount = accountName.isEmpty ? "Imported" : accountName
 
-                Task {
-                    await parseExcelFileAsync(url: url, entryId: entryId, account: currentParsingAccount)
+                if isExcelFile {
+                    // Route Excel files through the new ImportService pipeline
+                    Task {
+                        await parseExcelFileAsync(url: url, entryId: entryId, account: currentParsingAccount)
+                    }
+                } else {
+                    // Route PDF and CSV through the existing StatementParser
+                    Task {
+                        await parseFileAsync(url: url, entryId: entryId, account: currentParsingAccount)
+                    }
                 }
             }
         case .failure(let error):
@@ -424,6 +391,7 @@ struct ImportHubView: View {
         }
     }
 
+    // MARK: - Excel Parsing (XLSX/XLS via ImportService)
     private func parseExcelFileAsync(url: URL, entryId: UUID, account: String) async {
         let service = ImportService()
         do {
@@ -479,37 +447,7 @@ struct ImportHubView: View {
         }
     }
 
-    // MARK: - File Import Handler (PDF)
-    private func handleFileImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            for url in urls {
-                let name = url.lastPathComponent
-                let ext = url.pathExtension.uppercased()
-                let entryId = UUID()
-
-                let entry = UploadEntry(
-                    id: entryId,
-                    name: name,
-                    fileType: ext == "PDF" ? "PDF" : "CSV",
-                    status: .parsing,
-                    statusMessage: "Parsing...",
-                    transactionCount: 0
-                )
-                uploads.append(entry)
-
-                currentParsingAccount = accountName.isEmpty ? "Imported" : accountName
-
-                Task {
-                    await parseFileAsync(url: url, entryId: entryId, account: currentParsingAccount)
-                }
-            }
-        case .failure(let error):
-            parseErrorMessage = error.localizedDescription
-            showParseError = true
-        }
-    }
-
+    // MARK: - PDF/CSV Parsing (via StatementParser)
     private func parseFileAsync(url: URL, entryId: UUID, account: String) async {
         let parser = StatementParser()
         do {

@@ -1,5 +1,4 @@
 import Foundation
-import UniformTypeIdentifiers
 
 /// Orchestrates the Excel/CSV import pipeline.
 /// Detects file type, delegates to the appropriate parser, maps to transactions,
@@ -39,16 +38,6 @@ actor ImportService {
         let fileName: String
     }
 
-    // MARK: - Supported File Types
-
-    /// UTTypes for the file picker.
-    static let supportedTypes: [UTType] = [
-        .commaSeparatedText,                     // .csv
-        UTType("org.openxmlformats.spreadsheetml.sheet") ?? .data,  // .xlsx
-        UTType("com.microsoft.excel.xls") ?? .data,                 // .xls
-        .spreadsheet,                            // generic spreadsheet
-    ]
-
     // MARK: - Public API
 
     /// Imports transactions from a file URL. Auto-detects format and parses accordingly.
@@ -60,20 +49,19 @@ actor ImportService {
             if didAccess { url.stopAccessingSecurityScopedResource() }
         }
 
-        let ext = url.pathExtension.lowercased()
         let fileName = url.lastPathComponent
 
-        switch ext {
-        case "csv", "txt":
-            return try await importCSV(url: url, fileName: fileName)
-        case "xlsx":
+        // Detect file type by content (magic bytes), not just extension
+        let fileType = Self.detectFileType(at: url)
+
+        switch fileType {
+        case .xlsx:
             return try await importExcel(url: url, fileName: fileName)
-        case "xls":
-            // CoreXLSX doesn't support legacy .xls format.
-            // Try parsing as CSV in case it's actually tab-separated or misnamed.
+        case .csv:
             return try await importCSV(url: url, fileName: fileName)
         default:
-            throw ImportError.unsupportedFormat(ext)
+            // Fallback: try CSV parsing for unknown types
+            return try await importCSV(url: url, fileName: fileName)
         }
     }
 

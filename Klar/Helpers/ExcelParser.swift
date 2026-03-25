@@ -1,4 +1,5 @@
 import Foundation
+import Compression
 
 /// Parses XLSX files using native Foundation APIs (no external dependencies).
 /// XLSX files are ZIP archives containing XML. This parser extracts worksheets,
@@ -13,6 +14,7 @@ struct ExcelParser {
         case noWorksheets
         case corruptedXML(String)
         case noHeaderRow
+        case decompressionFailed
 
         var errorDescription: String? {
             switch self {
@@ -26,6 +28,8 @@ struct ExcelParser {
                 return "Corrupted Excel XML: \(detail)"
             case .noHeaderRow:
                 return "No header row found in the worksheet."
+            case .decompressionFailed:
+                return "Failed to decompress XLSX file contents."
             }
         }
     }
@@ -41,37 +45,43 @@ struct ExcelParser {
 
     /// Parses an XLSX file and returns the worksheet with the most data rows.
     static func parse(url: URL) throws -> ExcelResult {
-        // XLSX = ZIP archive. Unzip to a temp directory and parse the XML inside.
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("klar_xlsx_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let data = try Data(contentsOf: url)
 
-        try unzipFile(at: url, to: tempDir)
+        // Verify ZIP magic bytes (PK\x03\x04)
+        guard data.count >= 4,
+              data[data.startIndex] == 0x50,
+              data[data.startIndex + 1] == 0x4B else {
+            throw ExcelError.notAZipArchive
+        }
+
+        // Extract all files from the ZIP archive
+        let entries = try extractZIPEntries(from: data)
 
         // Parse shared strings (xl/sharedStrings.xml)
-        let sharedStrings = parseSharedStrings(in: tempDir)
+        let sharedStrings = parseSharedStrings(from: entries)
 
-        // Discover worksheets from xl/workbook.xml
-        let sheetNames = parseWorkbookSheetNames(in: tempDir)
+        // Get sheet names from workbook
+        let sheetNames = parseWorkbookSheetNames(from: entries)
 
-        // Parse each worksheet and pick the one with the most rows
+        // Find and parse all worksheet XMLs
+        let worksheetEntries = entries.filter { key, _ in
+            key.lowercased().hasPrefix("xl/worksheets/sheet") && key.lowercased().hasSuffix(".xml")
+        }
+
         var bestResult: ExcelResult?
         var bestRowCount = 0
 
-        let worksheetsDir = tempDir.appendingPathComponent("xl/worksheets")
-        let sheetFiles = (try? FileManager.default.contentsOfDirectory(
-            at: worksheetsDir, includingPropertiesForKeys: nil
-        )) ?? []
+        for (path, xmlData) in worksheetEntries {
+            let filename = (path as NSString).lastPathComponent
+            let sheetIndex = extractSheetIndex(from: filename)
+            let sheetName: String
+            if let idx = sheetIndex, idx >= 1, idx <= sheetNames.count {
+                sheetName = sheetNames[idx - 1]
+            } else {
+                sheetName = filename.replacingOccurrences(of: ".xml", with: "")
+            }
 
-        for sheetFile in sheetFiles where sheetFile.pathExtension == "xml" {
-            let sheetIndex = extractSheetIndex(from: sheetFile.lastPathComponent)
-            let sheetName = (sheetIndex != nil && sheetIndex! <= sheetNames.count)
-                ? sheetNames[sheetIndex! - 1]
-                : sheetFile.deletingPathExtension().lastPathComponent
-
-            if let result = try parseWorksheetXML(at: sheetFile,
-                                                   sheetName: sheetName,
-                                                   sharedStrings: sharedStrings),
+            if let result = parseWorksheetXML(data: xmlData, sheetName: sheetName, sharedStrings: sharedStrings),
                result.rows.count > bestRowCount {
                 bestResult = result
                 bestRowCount = result.rows.count
@@ -84,58 +94,31 @@ struct ExcelParser {
         return result
     }
 
-    // MARK: - ZIP Extraction
+    // MARK: - ZIP Extraction (In-Memory)
 
-    /// Unzips a file using the built-in `unzip` command (available on all Apple platforms).
-    private static func unzipFile(at source: URL, to destination: URL) throws {
-        // Verify it looks like a ZIP (PK magic bytes)
-        let data = try Data(contentsOf: source, options: .mappedIfSafe)
-        guard data.count >= 4 else { throw ExcelError.cannotOpenFile(source.path) }
-        let magic = [UInt8](data.prefix(4))
-        guard magic[0] == 0x50, magic[1] == 0x4B else {
-            throw ExcelError.notAZipArchive
-        }
-
-        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
-
-        // Use Process to unzip (available on iOS simulator / macOS; for device,
-        // we fall back to manual ZIP parsing below)
-        #if targetEnvironment(simulator) || os(macOS)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-o", "-q", source.path, "-d", destination.path]
-        try process.run()
-        process.waitUntilExit()
-        if process.terminationStatus != 0 {
-            throw ExcelError.cannotOpenFile(source.path)
-        }
-        #else
-        // On-device: use Foundation's built-in decompression
-        try unzipManually(data: data, to: destination)
-        #endif
-    }
-
-    /// Manual ZIP extraction using Foundation for on-device builds.
-    /// Handles the basic ZIP local file header format used by XLSX files.
-    private static func unzipManually(data: Data, to destination: URL) throws {
-        var offset = 0
+    /// Extracts all files from a ZIP archive into a dictionary of path → Data.
+    /// Works entirely in-memory — no temp files, no Process, fully iOS-compatible.
+    private static func extractZIPEntries(from data: Data) throws -> [String: Data] {
+        var entries: [String: Data] = [:]
         let bytes = [UInt8](data)
+        var offset = 0
 
         while offset + 30 <= bytes.count {
-            // Check for local file header signature: PK\x03\x04
-            guard bytes[offset] == 0x50, bytes[offset+1] == 0x4B,
-                  bytes[offset+2] == 0x03, bytes[offset+3] == 0x04 else { break }
+            // Local file header signature: PK\x03\x04
+            guard bytes[offset] == 0x50, bytes[offset + 1] == 0x4B,
+                  bytes[offset + 2] == 0x03, bytes[offset + 3] == 0x04 else {
+                break
+            }
 
-            let compressionMethod = UInt16(bytes[offset+8]) | (UInt16(bytes[offset+9]) << 8)
-            let compressedSize = Int(UInt32(bytes[offset+18]) | (UInt32(bytes[offset+19]) << 8)
-                | (UInt32(bytes[offset+20]) << 16) | (UInt32(bytes[offset+21]) << 24))
-            let uncompressedSize = Int(UInt32(bytes[offset+22]) | (UInt32(bytes[offset+23]) << 8)
-                | (UInt32(bytes[offset+24]) << 16) | (UInt32(bytes[offset+25]) << 24))
-            let nameLength = Int(UInt16(bytes[offset+26]) | (UInt16(bytes[offset+27]) << 8))
-            let extraLength = Int(UInt16(bytes[offset+28]) | (UInt16(bytes[offset+29]) << 8))
+            let compressionMethod = readUInt16(bytes, at: offset + 8)
+            var compressedSize = Int(readUInt32(bytes, at: offset + 18))
+            let uncompressedSize = Int(readUInt32(bytes, at: offset + 22))
+            let nameLength = Int(readUInt16(bytes, at: offset + 26))
+            let extraLength = Int(readUInt16(bytes, at: offset + 28))
 
             let nameStart = offset + 30
             guard nameStart + nameLength <= bytes.count else { break }
+
             let nameData = Data(bytes[nameStart..<(nameStart + nameLength)])
             guard let name = String(data: nameData, encoding: .utf8) else {
                 offset = nameStart + nameLength + extraLength + compressedSize
@@ -143,49 +126,106 @@ struct ExcelParser {
             }
 
             let dataStart = nameStart + nameLength + extraLength
+
+            // Handle data descriptor (bit 3 of general purpose flags)
+            let generalFlags = readUInt16(bytes, at: offset + 6)
+            if generalFlags & 0x08 != 0 && compressedSize == 0 {
+                // Data descriptor follows the compressed data — scan for next PK signature
+                var scanOffset = dataStart
+                while scanOffset + 4 <= bytes.count {
+                    if bytes[scanOffset] == 0x50 && bytes[scanOffset + 1] == 0x4B {
+                        break
+                    }
+                    scanOffset += 1
+                }
+                compressedSize = scanOffset - dataStart
+                // Check for data descriptor header (optional PK\x07\x08 signature)
+                if scanOffset >= dataStart + 16 {
+                    let possibleSig = dataStart + compressedSize - 16
+                    if bytes[possibleSig] == 0x50 && bytes[possibleSig + 1] == 0x4B &&
+                       bytes[possibleSig + 2] == 0x07 && bytes[possibleSig + 3] == 0x08 {
+                        compressedSize -= 16
+                    }
+                }
+            }
+
             guard dataStart + compressedSize <= bytes.count else { break }
 
-            let fileURL = destination.appendingPathComponent(name)
-
-            if name.hasSuffix("/") {
-                try FileManager.default.createDirectory(at: fileURL,
-                    withIntermediateDirectories: true)
-            } else {
-                let dir = fileURL.deletingLastPathComponent()
-                try FileManager.default.createDirectory(at: dir,
-                    withIntermediateDirectories: true)
-
+            // Skip directories
+            if !name.hasSuffix("/") && compressedSize > 0 {
                 let compressedData = Data(bytes[dataStart..<(dataStart + compressedSize)])
 
                 if compressionMethod == 0 {
                     // Stored (no compression)
-                    try compressedData.write(to: fileURL)
+                    entries[name] = compressedData
                 } else if compressionMethod == 8 {
-                    // Deflate — use Foundation's decompression
-                    // Add zlib header (0x78 0x01) for raw deflate data
-                    var zlibData = Data([0x78, 0x01])
-                    zlibData.append(compressedData)
-                    if let decompressed = try? (zlibData as NSData).decompressed(using: .zlib) as Data {
-                        try decompressed.write(to: fileURL)
-                    } else if uncompressedSize == 0 {
-                        // Empty file
-                        try Data().write(to: fileURL)
+                    // Deflate — decompress using Apple's Compression framework
+                    if let decompressed = decompressDeflate(compressedData, expectedSize: max(uncompressedSize, compressedSize * 4)) {
+                        entries[name] = decompressed
                     }
                 }
             }
 
             offset = dataStart + compressedSize
+
+            // Skip data descriptor if present
+            if generalFlags & 0x08 != 0 {
+                if offset + 4 <= bytes.count &&
+                   bytes[offset] == 0x50 && bytes[offset + 1] == 0x4B &&
+                   bytes[offset + 2] == 0x07 && bytes[offset + 3] == 0x08 {
+                    offset += 16 // Signature + CRC + compressed + uncompressed sizes
+                } else if offset + 12 <= bytes.count {
+                    offset += 12 // CRC + compressed + uncompressed sizes (no signature)
+                }
+            }
         }
+
+        return entries
+    }
+
+    /// Reads a little-endian UInt16 from a byte array.
+    private static func readUInt16(_ bytes: [UInt8], at offset: Int) -> UInt16 {
+        UInt16(bytes[offset]) | (UInt16(bytes[offset + 1]) << 8)
+    }
+
+    /// Reads a little-endian UInt32 from a byte array.
+    private static func readUInt32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
+        UInt32(bytes[offset]) | (UInt32(bytes[offset + 1]) << 8) |
+        (UInt32(bytes[offset + 2]) << 16) | (UInt32(bytes[offset + 3]) << 24)
+    }
+
+    // MARK: - Deflate Decompression
+
+    /// Decompresses raw deflate data using Apple's Compression framework.
+    /// This is the correct approach for ZIP files which store raw deflate (RFC 1951),
+    /// NOT zlib-wrapped data (RFC 1950).
+    private static func decompressDeflate(_ compressedData: Data, expectedSize: Int) -> Data? {
+        // Use a generous buffer — some files decompress to much larger sizes
+        let bufferSize = max(expectedSize, compressedData.count * 8)
+        let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { destinationBuffer.deallocate() }
+
+        let decodedSize = compressedData.withUnsafeBytes { sourceBuffer -> Int in
+            guard let baseAddress = sourceBuffer.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+            return compression_decode_buffer(
+                destinationBuffer, bufferSize,
+                baseAddress, compressedData.count,
+                nil,
+                COMPRESSION_ZLIB
+            )
+        }
+
+        guard decodedSize > 0 else { return nil }
+        return Data(bytes: destinationBuffer, count: decodedSize)
     }
 
     // MARK: - Shared Strings Parsing
 
     /// Parses xl/sharedStrings.xml to build the shared string table.
-    /// XLSX stores repeated strings once here and references them by index in cells.
-    private static func parseSharedStrings(in directory: URL) -> [String] {
-        let path = directory.appendingPathComponent("xl/sharedStrings.xml")
-        guard let data = try? Data(contentsOf: path) else { return [] }
-
+    private static func parseSharedStrings(from entries: [String: Data]) -> [String] {
+        // Try both casing variants
+        let key = entries.keys.first { $0.lowercased() == "xl/sharedstrings.xml" } ?? "xl/sharedStrings.xml"
+        guard let data = entries[key] else { return [] }
         let parser = SharedStringsXMLParser(data: data)
         return parser.parse()
     }
@@ -193,10 +233,9 @@ struct ExcelParser {
     // MARK: - Workbook Parsing
 
     /// Parses xl/workbook.xml to get sheet names in order.
-    private static func parseWorkbookSheetNames(in directory: URL) -> [String] {
-        let path = directory.appendingPathComponent("xl/workbook.xml")
-        guard let data = try? Data(contentsOf: path) else { return [] }
-
+    private static func parseWorkbookSheetNames(from entries: [String: Data]) -> [String] {
+        let key = entries.keys.first { $0.lowercased() == "xl/workbook.xml" } ?? "xl/workbook.xml"
+        guard let data = entries[key] else { return [] }
         let parser = WorkbookXMLParser(data: data)
         return parser.parse()
     }
@@ -210,12 +249,8 @@ struct ExcelParser {
 
     // MARK: - Worksheet XML Parsing
 
-    /// Parses a single worksheet XML file into headers + rows.
-    private static func parseWorksheetXML(at url: URL,
-                                           sheetName: String,
-                                           sharedStrings: [String]) throws -> ExcelResult? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-
+    /// Parses a single worksheet XML into headers + rows.
+    private static func parseWorksheetXML(data: Data, sheetName: String, sharedStrings: [String]) -> ExcelResult? {
         let parser = WorksheetXMLParser(data: data, sharedStrings: sharedStrings)
         let allRows = parser.parse()
 
@@ -330,14 +365,14 @@ private class WorksheetXMLParser: NSObject, XMLParserDelegate {
     private let data: Data
     private let sharedStrings: [String]
 
-    private var rows: [[String]] = []        // Final output: array of rows, each row = array of cell values
+    private var rows: [[String]] = []
     private var currentRowCells: [(col: Int, value: String)] = []
     private var currentCellRef = ""
     private var currentCellType = ""
     private var currentValue = ""
-    private var insideV = false               // Inside <v> (value) element
-    private var insideIS = false              // Inside <is> (inline string) element
-    private var insideT = false              // Inside <t> (text) element within <is>
+    private var insideV = false
+    private var insideIS = false
+    private var insideT = false
     private var inlineText = ""
 
     init(data: Data, sharedStrings: [String]) {
@@ -392,7 +427,6 @@ private class WorksheetXMLParser: NSObject, XMLParserDelegate {
         case "is":
             insideIS = false
         case "c":
-            // Resolve cell value
             let resolved: String
             if currentCellType == "s" {
                 // Shared string reference
@@ -411,7 +445,6 @@ private class WorksheetXMLParser: NSObject, XMLParserDelegate {
                 currentRowCells.append((col: colIndex, value: resolved))
             }
         case "row":
-            // Convert sparse cells to a dense row array
             if !currentRowCells.isEmpty {
                 let maxCol = currentRowCells.map { $0.col }.max() ?? 0
                 var row = Array(repeating: "", count: maxCol + 1)
