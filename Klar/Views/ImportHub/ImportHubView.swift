@@ -352,12 +352,16 @@ struct ImportHubView: View {
                 let name = url.lastPathComponent
                 let ext = url.pathExtension.uppercased()
                 let entryId = UUID()
-                let isExcelFile = ext == "XLSX" || ext == "XLS"
+
+                // Use content-based detection — many .xls files are actually CSV/HTML
+                let isPDF = ext == "PDF"
+                let detectedType = isPDF ? ImportSource.pdf : ImportService.detectFileType(at: url)
 
                 let fileType: String
-                switch ext {
-                case "PDF": fileType = "PDF"
-                case "XLSX", "XLS": fileType = "XLS"
+                switch detectedType {
+                case .pdf: fileType = "PDF"
+                case .xlsx: fileType = "XLS"
+                case .csv: fileType = ext == "XLS" || ext == "XLSX" ? "XLS" : "CSV"
                 default: fileType = "CSV"
                 }
 
@@ -373,15 +377,16 @@ struct ImportHubView: View {
 
                 currentParsingAccount = accountName.isEmpty ? "Imported" : accountName
 
-                if isExcelFile {
-                    // Route Excel files through the new ImportService pipeline
-                    Task {
-                        await parseExcelFileAsync(url: url, entryId: entryId, account: currentParsingAccount)
-                    }
-                } else {
-                    // Route PDF and CSV through the existing StatementParser
+                if isPDF {
+                    // Route PDF through the existing StatementParser (has OCR support)
                     Task {
                         await parseFileAsync(url: url, entryId: entryId, account: currentParsingAccount)
+                    }
+                } else {
+                    // Route XLSX, XLS, and CSV through ImportService
+                    // (handles real XLSX, fake .xls as CSV, and actual CSV)
+                    Task {
+                        await parseExcelFileAsync(url: url, entryId: entryId, account: currentParsingAccount)
                     }
                 }
             }
