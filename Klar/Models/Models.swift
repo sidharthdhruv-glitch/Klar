@@ -10,6 +10,7 @@ enum ImportSource: String, Codable, CaseIterable {
     case csv
     case pdf
     case xlsx
+    case xls
     case manual
 }
 

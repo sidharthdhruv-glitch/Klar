@@ -50,6 +50,7 @@
 		AA000041 /* ExcelParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000041; };
 		AA000042 /* ImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000042; };
 		AA000043 /* TransactionMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000043; };
+		AA000044 /* BIFFParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000044; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -96,6 +97,7 @@
 		BB000041 /* ExcelParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExcelParser.swift; sourceTree = "<group>"; };
 		BB000042 /* ImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportService.swift; sourceTree = "<group>"; };
 		BB000043 /* TransactionMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionMapper.swift; sourceTree = "<group>"; };
+		BB000044 /* BIFFParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BIFFParser.swift; sourceTree = "<group>"; };
 		CC000001 /* Klar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Klar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -154,6 +156,7 @@
 				BB000041 /* ExcelParser.swift */,
 				BB000042 /* ImportService.swift */,
 				BB000043 /* TransactionMapper.swift */,
+				BB000044 /* BIFFParser.swift */,
 			);
 			path = Helpers;
 			sourceTree = "<group>";
@@ -359,6 +362,7 @@
 				AA000041 /* ExcelParser.swift in Sources */,
 				AA000042 /* ImportService.swift in Sources */,
 				AA000043 /* TransactionMapper.swift in Sources */,
+				AA000044 /* BIFFParser.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

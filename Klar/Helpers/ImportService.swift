@@ -57,28 +57,34 @@ actor ImportService {
         switch fileType {
         case .xlsx:
             return try await importExcel(url: url, fileName: fileName)
+        case .xls:
+            return try await importBIFF(url: url, fileName: fileName)
         case .csv:
             return try await importCSV(url: url, fileName: fileName)
         default:
-            // Fallback: try CSV parsing for unknown types
             return try await importCSV(url: url, fileName: fileName)
         }
     }
 
-    /// Detects whether a file is XLSX or CSV/text based on content (magic bytes).
-    /// Many Indian bank portals export HTML tables or CSV data with a .xls extension,
-    /// so we always check the actual file content rather than trusting the extension.
+    /// Detects file format using magic bytes, not file extension.
+    /// Indian bank portals often export HTML/CSV with .xls extension.
     static func detectFileType(at url: URL) -> ImportSource {
-        // Always check magic bytes first — file extensions can lie
-        if let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-           data.count >= 4 {
-            let header = [UInt8](data.prefix(4))
-            // ZIP archive (PK\x03\x04) → real XLSX
-            if header[0] == 0x50, header[1] == 0x4B, header[2] == 0x03, header[3] == 0x04 {
-                return .xlsx
-            }
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              data.count >= 8 else { return .csv }
+
+        let header = [UInt8](data.prefix(8))
+
+        // ZIP archive (PK\x03\x04) → real XLSX
+        if header[0] == 0x50, header[1] == 0x4B, header[2] == 0x03, header[3] == 0x04 {
+            return .xlsx
         }
-        // Everything else (CSV, .xls HTML tables, tab-delimited, etc.) → parse as CSV
+
+        // OLE2 Compound File (D0 CF 11 E0 A1 B1 1A E1) → legacy .xls (BIFF)
+        if BIFFParser.isOLE2(data) {
+            return .xls
+        }
+
+        // Everything else (CSV, HTML tables, tab-delimited, etc.)
         return .csv
     }
 
@@ -178,7 +184,27 @@ actor ImportService {
         )
     }
 
-    // MARK: - Excel Import
+    // MARK: - Legacy .xls (BIFF) Import
+
+    private func importBIFF(url: URL, fileName: String) async throws -> ImportResult {
+        let biffResult = try BIFFParser.parse(url: url)
+        let mapping = TransactionMapper.map(headers: biffResult.headers, rows: biffResult.rows)
+
+        if mapping.transactions.isEmpty && mapping.totalRows > 0 {
+            throw ImportError.emptyResult
+        }
+
+        return ImportResult(
+            transactions: mapping.transactions,
+            totalRowsParsed: mapping.totalRows,
+            skippedRows: mapping.skippedRows,
+            warnings: mapping.warnings,
+            source: .xls,
+            fileName: fileName
+        )
+    }
+
+    // MARK: - Excel Import (.xlsx)
 
     private func importExcel(url: URL, fileName: String) async throws -> ImportResult {
         let excelResult = try ExcelParser.parse(url: url)
