@@ -643,7 +643,7 @@ struct AddTransactionSheet: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(KlarColors.primary)
+                    .background(KlarColors.accent)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .padding(.horizontal, 20)
@@ -726,7 +726,7 @@ struct OCRScannerSheet: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)
-                        .background(KlarColors.primary)
+                        .background(KlarColors.accent)
                         .clipShape(Capsule())
                     }
                     .padding(.top, 8)
@@ -849,7 +849,7 @@ struct OCRScannerSheet: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(KlarColors.primary)
+                        .background(KlarColors.accent)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 .padding(.horizontal, 20)

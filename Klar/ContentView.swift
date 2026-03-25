@@ -29,13 +29,12 @@ struct ContentView: View {
                 LinearGradient(
                     colors: [
                         KlarColors.background.opacity(0),
-                        KlarColors.background.opacity(0.6),
-                        KlarColors.background
+                        KlarColors.background.opacity(0.8)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: 40)
+                .frame(height: 50)
                 .allowsHitTesting(false)
             }
 

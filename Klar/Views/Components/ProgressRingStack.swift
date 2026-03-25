@@ -5,11 +5,15 @@ struct ProgressRingStack: View {
     let totalBudget: Double
     let totalSpent: Double
 
-    @State private var ringProgress: [UUID: CGFloat] = [:]
+    @State private var ringProgress: [String: CGFloat] = [:]
     @State private var tappedCategory: String?
 
-    private var topCategories: [CategorySpend] {
-        Array(categories.sorted { $0.amount > $1.amount }.prefix(4))
+    private var sortedCategories: [CategorySpend] {
+        categories.sorted { $0.amount > $1.amount }
+    }
+
+    private var ringCategories: [CategorySpend] {
+        Array(sortedCategories.prefix(4))
     }
 
     private var overallPercent: Int {
@@ -25,9 +29,9 @@ struct ProgressRingStack: View {
                 .foregroundColor(KlarColors.primary)
 
             HStack(spacing: 24) {
-                // Rings
+                // Rings (top 4)
                 ZStack {
-                    ForEach(Array(topCategories.enumerated()), id: \.element.id) { index, item in
+                    ForEach(Array(ringCategories.enumerated()), id: \.element.category) { index, item in
                         let radius: CGFloat = CGFloat(85 - index * 22)
                         let progress = item.budget > 0 ? item.amount / item.budget : 0
                         let isTapped = tappedCategory == item.category
@@ -37,7 +41,7 @@ struct ProgressRingStack: View {
                             .frame(width: radius * 2, height: radius * 2)
 
                         Circle()
-                            .trim(from: 0, to: ringProgress[item.id] ?? 0)
+                            .trim(from: 0, to: ringProgress[item.category] ?? 0)
                             .stroke(
                                 progress > 1.0
                                     ? KlarColors.negative
@@ -68,9 +72,9 @@ struct ProgressRingStack: View {
                 }
                 .frame(width: 190, height: 190)
 
-                // Legend
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(topCategories) { item in
+                // Legend (all categories)
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(sortedCategories, id: \.category) { item in
                         let progress = item.budget > 0 ? item.amount / item.budget : 0
                         let isTapped = tappedCategory == item.category
 
@@ -81,10 +85,11 @@ struct ProgressRingStack: View {
                                     .frame(width: 8, height: 8)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(item.category.uppercased())
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(.system(size: 11, weight: .medium))
                                         .foregroundColor(KlarColors.primary)
+                                        .lineLimit(1)
                                     Text("\(Int(progress * 100))% of budget")
-                                        .font(.system(size: 10))
+                                        .font(.system(size: 9))
                                         .foregroundColor(
                                             progress > 0.9 ? KlarColors.negative : KlarColors.secondary
                                         )
@@ -110,17 +115,14 @@ struct ProgressRingStack: View {
             }
         }
         .onAppear {
-            for (index, item) in topCategories.enumerated() {
+            for (index, item) in ringCategories.enumerated() {
                 let progress = item.budget > 0 ? min(item.amount / item.budget, 1.2) : 0
                 withAnimation(
                     .spring(response: 0.8, dampingFraction: 0.7)
                     .delay(Double(index) * 0.12)
                 ) {
-                    ringProgress[item.id] = CGFloat(progress)
+                    ringProgress[item.category] = CGFloat(progress)
                 }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                HapticManager.light()
             }
         }
     }

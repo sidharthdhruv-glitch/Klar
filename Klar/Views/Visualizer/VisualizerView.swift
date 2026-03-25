@@ -104,7 +104,7 @@ struct VisualizerView: View {
                 category: nil,
                 label: "Saved",
                 amount: savings,
-                color: Color(hex: "#3A6EA5")
+                color: KlarColors.accent
             ))
         }
         return flows

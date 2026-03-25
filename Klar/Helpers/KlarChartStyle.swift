@@ -22,7 +22,7 @@ enum KlarChartStyle {
     static func categoryGradient(for name: String) -> LinearGradient {
         let base = KlarColors.categoryColor(for: name)
         return LinearGradient(
-            colors: [base, base.opacity(0.7)],
+            colors: [base.opacity(0.9), base.opacity(0.6)],
             startPoint: .leading,
             endPoint: .trailing
         )

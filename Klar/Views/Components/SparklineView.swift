@@ -27,7 +27,7 @@ struct SparklineView: View {
     private var resolvedColor: Color {
         if let trendColor { return trendColor }
         guard let first = data.first, let last = data.last else { return KlarColors.secondary }
-        return last >= first ? Color(hex: "#2D6A4F") : Color(hex: "#C9505B")
+        return last >= first ? KlarColors.positive : KlarColors.negative
     }
 
     private var normalizedData: [CGFloat] {

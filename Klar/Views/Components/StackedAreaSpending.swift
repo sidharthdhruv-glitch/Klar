@@ -35,11 +35,11 @@ struct StackedAreaSpending: View {
 
                 RuleMark(y: .value("Budget", budgetLimit))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                    .foregroundStyle(Color(hex: "#C9505B").opacity(0.6))
+                    .foregroundStyle(KlarColors.negative.opacity(0.6))
                     .annotation(position: .trailing, alignment: .leading) {
                         Text("Budget")
                             .font(.system(size: 9))
-                            .foregroundColor(Color(hex: "#C9505B"))
+                            .foregroundColor(KlarColors.negative)
                     }
 
                 if let date = selectedDate {

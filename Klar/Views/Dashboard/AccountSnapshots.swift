@@ -22,8 +22,12 @@ struct AccountSnapshotCard: View {
         }
         .padding(14)
         .frame(width: 160)
-        .background(KlarColors.surfaceElevated)
+        .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(KlarColors.border.opacity(0.5), lineWidth: 0.5)
+        )
     }
 }
 
@@ -81,8 +85,12 @@ struct AccountSnapshotsFromTransactions: View {
                         }
                         .padding(14)
                         .frame(width: 160)
-                        .background(KlarColors.surfaceElevated)
+                        .background(.ultraThinMaterial)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(KlarColors.border.opacity(0.5), lineWidth: 0.5)
+                        )
                     }
                 }
                 .padding(.horizontal, 20)
@@ -132,8 +140,12 @@ struct AccountSnapshotsWithSparklines: View {
                         }
                         .padding(14)
                         .frame(width: 180)
-                        .background(KlarColors.surfaceElevated)
+                        .background(.ultraThinMaterial)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(KlarColors.border.opacity(0.5), lineWidth: 0.5)
+                        )
                     }
                 }
                 .padding(.horizontal, 20)

@@ -16,8 +16,9 @@ struct SankeyDiagramView: View {
     @State private var animationProgress: CGFloat = 0
     @State private var selectedFlow: SankeyFlow?
 
-    private let nodeWidth: CGFloat = 16
+    private let nodeWidth: CGFloat = 12
     private let nodeCornerRadius: CGFloat = 4
+    private let labelColumnWidth: CGFloat = 80
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -34,88 +35,109 @@ struct SankeyDiagramView: View {
                 Spacer()
                 Text(KlarChartStyle.formatAmount(income))
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundColor(Color(hex: "#2D6A4F"))
+                    .foregroundColor(KlarColors.positive)
             }
 
-            GeometryReader { geo in
-                let totalHeight = geo.size.height
-                let totalWidth = geo.size.width
-                let leftX: CGFloat = 0
-                let rightX: CGFloat = totalWidth - nodeWidth
-                let sortedFlows = flows.sorted { $0.amount > $1.amount }
-                let gapSize: CGFloat = 4
-                let totalGaps = gapSize * max(CGFloat(sortedFlows.count - 1), 0)
-                let usableHeight = totalHeight - totalGaps
-
-                ZStack {
-                    // Left node (Income)
-                    RoundedRectangle(cornerRadius: nodeCornerRadius)
-                        .fill(Color(hex: "#2D6A4F"))
-                        .frame(width: nodeWidth, height: totalHeight * animationProgress)
-                        .position(x: leftX + nodeWidth / 2, y: totalHeight / 2)
-
-                    // Left label
+            HStack(spacing: 0) {
+                // Left label
+                VStack {
                     Text("Income")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(Color(hex: "#2D6A4F"))
-                        .opacity(animationProgress)
-                        .position(x: leftX + nodeWidth + 30, y: totalHeight / 2)
+                        .foregroundColor(KlarColors.positive)
+                }
+                .frame(width: 44, alignment: .trailing)
+                .opacity(animationProgress)
+
+                // Sankey diagram area
+                GeometryReader { geo in
+                    let totalHeight = geo.size.height
+                    let totalWidth = geo.size.width
+                    let leftX: CGFloat = 0
+                    let rightX: CGFloat = totalWidth - nodeWidth
+                    let sortedFlows = flows.sorted { $0.amount > $1.amount }
+                    let gapSize: CGFloat = 4
+                    let totalGaps = gapSize * max(CGFloat(sortedFlows.count - 1), 0)
+                    let usableHeight = totalHeight - totalGaps
+
+                    ZStack {
+                        // Left node (Income)
+                        RoundedRectangle(cornerRadius: nodeCornerRadius)
+                            .fill(KlarColors.positive)
+                            .frame(width: nodeWidth, height: totalHeight * animationProgress)
+                            .position(x: leftX + nodeWidth / 2, y: totalHeight / 2)
+
+                        ForEach(Array(sortedFlows.enumerated()), id: \.element.id) { index, flow in
+                            let flowHeight = usableHeight * CGFloat(flow.amount / max(income, 1))
+                            let yOffset = calculateYOffset(for: index, in: sortedFlows, usableHeight: usableHeight, gapSize: gapSize)
+                            let leftFlowY = calculateLeftYOffset(for: index, in: sortedFlows, totalHeight: totalHeight)
+                            let leftFlowHeight = totalHeight * CGFloat(flow.amount / max(income, 1))
+
+                            // Flow path
+                            SankeyFlowPath(
+                                startX: leftX + nodeWidth,
+                                startY: leftFlowY,
+                                startHeight: leftFlowHeight,
+                                endX: rightX,
+                                endY: yOffset,
+                                endHeight: flowHeight,
+                                color: flow.color,
+                                progress: animationProgress,
+                                isSelected: selectedFlow?.id == flow.id,
+                                isOtherSelected: selectedFlow != nil && selectedFlow?.id != flow.id
+                            )
+                            .onTapGesture {
+                                withAnimation(KlarChartStyle.chartInteractionAnimation) {
+                                    selectedFlow = selectedFlow?.id == flow.id ? nil : flow
+                                }
+                                HapticManager.light()
+                            }
+
+                            // Right node
+                            RoundedRectangle(cornerRadius: nodeCornerRadius)
+                                .fill(flow.color)
+                                .frame(width: nodeWidth, height: flowHeight * animationProgress)
+                                .position(x: rightX + nodeWidth / 2, y: yOffset + flowHeight / 2)
+                        }
+                    }
+                }
+
+                // Right labels column
+                VStack(alignment: .leading, spacing: 0) {
+                    let sortedFlows = flows.sorted { $0.amount > $1.amount }
+                    let gapSize: CGFloat = 4
 
                     ForEach(Array(sortedFlows.enumerated()), id: \.element.id) { index, flow in
-                        let flowHeight = usableHeight * CGFloat(flow.amount / max(income, 1))
-                        let yOffset = calculateYOffset(for: index, in: sortedFlows, usableHeight: usableHeight, gapSize: gapSize)
-                        let leftFlowY = calculateLeftYOffset(for: index, in: sortedFlows, totalHeight: totalHeight)
-                        let leftFlowHeight = totalHeight * CGFloat(flow.amount / max(income, 1))
-
-                        // Flow path
-                        SankeyFlowPath(
-                            startX: leftX + nodeWidth,
-                            startY: leftFlowY,
-                            startHeight: leftFlowHeight,
-                            endX: rightX,
-                            endY: yOffset,
-                            endHeight: flowHeight,
-                            color: flow.color,
-                            progress: animationProgress,
-                            isSelected: selectedFlow?.id == flow.id,
-                            isOtherSelected: selectedFlow != nil && selectedFlow?.id != flow.id
-                        )
-                        .onTapGesture {
-                            withAnimation(KlarChartStyle.chartInteractionAnimation) {
-                                selectedFlow = selectedFlow?.id == flow.id ? nil : flow
-                            }
-                            HapticManager.light()
+                        if index > 0 {
+                            Spacer()
+                                .frame(height: gapSize)
                         }
 
-                        // Right node
-                        RoundedRectangle(cornerRadius: nodeCornerRadius)
-                            .fill(flow.color)
-                            .frame(width: nodeWidth, height: flowHeight * animationProgress)
-                            .position(x: rightX + nodeWidth / 2, y: yOffset + flowHeight / 2)
-
-                        // Right label
                         let pct = income > 0 ? Int(flow.amount / income * 100) : 0
-                        VStack(alignment: .trailing, spacing: 1) {
+
+                        VStack(alignment: .leading, spacing: 1) {
                             Text(flow.label.uppercased())
-                                .font(.system(size: 10, weight: .medium))
+                                .font(.system(size: 9, weight: .medium))
                                 .foregroundColor(KlarColors.primary)
-                            HStack(spacing: 4) {
+                                .lineLimit(1)
+                            HStack(spacing: 2) {
                                 Text(KlarChartStyle.formatAmount(flow.amount, compact: true))
-                                    .font(.system(size: 10, weight: .regular, design: .rounded))
+                                    .font(.system(size: 9, weight: .regular, design: .rounded))
                                     .foregroundColor(KlarColors.secondary)
                                 if selectedFlow?.id == flow.id {
                                     Text("(\(pct)%)")
-                                        .font(.system(size: 9, weight: .medium))
+                                        .font(.system(size: 8, weight: .medium))
                                         .foregroundColor(flow.color)
                                 }
                             }
                         }
+                        .frame(maxHeight: .infinity)
                         .opacity(animationProgress)
-                        .position(x: rightX - 44, y: yOffset + flowHeight / 2)
                     }
                 }
+                .frame(width: labelColumnWidth)
+                .padding(.leading, 6)
             }
-            .frame(height: 240)
+            .frame(height: max(CGFloat(flows.count) * 36, 200))
         }
         .onAppear {
             withAnimation(.spring(response: 1.0, dampingFraction: 0.75)) {

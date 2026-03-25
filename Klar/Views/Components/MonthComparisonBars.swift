@@ -56,7 +56,7 @@ struct MonthComparisonBars: View {
                         if abs(delta) > 5 {
                             Text(String(format: "%+.0f%%", delta))
                                 .font(.system(size: 9, weight: .semibold, design: .rounded))
-                                .foregroundColor(delta > 0 ? Color(hex: "#C9505B") : Color(hex: "#2D6A4F"))
+                                .foregroundColor(delta > 0 ? KlarColors.negative : KlarColors.positive)
                         }
                     }
                 }

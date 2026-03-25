@@ -251,7 +251,7 @@ struct ImportHubView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(KlarColors.primary)
+                        .background(KlarColors.accent)
                         .clipShape(Capsule())
                 }
             }

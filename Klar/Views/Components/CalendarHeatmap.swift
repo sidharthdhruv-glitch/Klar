@@ -17,10 +17,10 @@ struct CalendarHeatmap: View {
     private func colorForAmount(_ amount: Double) -> Color {
         let ratio = maxSpend > 0 ? amount / maxSpend : 0
         if ratio < 0.01 { return KlarColors.barTrack }
-        if ratio < 0.25 { return Color(hex: "#E8D9A8") }
-        if ratio < 0.50 { return Color(hex: "#D4A843") }
-        if ratio < 0.75 { return Color(hex: "#C8A84E") }
-        return Color(hex: "#C9505B")
+        if ratio < 0.25 { return KlarColors.food.opacity(0.4) }
+        if ratio < 0.50 { return KlarColors.accent.opacity(0.6) }
+        if ratio < 0.75 { return KlarColors.accent.opacity(0.8) }
+        return KlarColors.negative
     }
 
     var body: some View {
@@ -111,7 +111,7 @@ struct CalendarHeatmap: View {
                     icon: "flame.fill",
                     text: "Heaviest: \(dayOfWeekName(heaviestDay.date))",
                     detail: KlarChartStyle.formatAmount(heaviestDay.amount),
-                    color: Color(hex: "#C9505B")
+                    color: KlarColors.negative
                 )
             }
 
@@ -121,7 +121,7 @@ struct CalendarHeatmap: View {
                     icon: "trophy.fill",
                     text: "\(streakDays)-day no-spend streak",
                     detail: nil,
-                    color: Color(hex: "#2D6A4F")
+                    color: KlarColors.positive
                 )
             }
         }

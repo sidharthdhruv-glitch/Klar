@@ -226,7 +226,7 @@ struct AddSubscriptionSheet: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(KlarColors.primary)
+                    .background(KlarColors.accent)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .padding(.bottom, 32)

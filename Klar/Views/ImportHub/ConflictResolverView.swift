@@ -84,10 +84,10 @@ struct ConflictResolverView: View {
                         Text("Skip")
                             .font(KlarFonts.label(13))
                             .fontWeight(.bold)
-                            .foregroundStyle(.black)
+                            .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(.white)
+                            .background(KlarColors.accent)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
 
@@ -115,10 +115,10 @@ struct ConflictResolverView: View {
                     Text("Done")
                         .font(KlarFonts.label(14))
                         .fontWeight(.bold)
-                        .foregroundStyle(.black)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(.white)
+                        .background(KlarColors.accent)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
             }

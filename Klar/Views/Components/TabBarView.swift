@@ -46,7 +46,7 @@ struct KlarTabBar: View {
                     VStack(spacing: 4) {
                         Image(systemName: tab.icon(isSelected: selectedTab == tab))
                             .font(.system(size: 20, weight: selectedTab == tab ? .semibold : .regular))
-                            .foregroundColor(selectedTab == tab ? KlarColors.accent : .white.opacity(0.5))
+                            .foregroundColor(selectedTab == tab ? KlarColors.accent : KlarColors.secondary)
                             .symbolEffect(.bounce, value: selectedTab == tab)
 
                         if selectedTab == tab {
@@ -69,8 +69,22 @@ struct KlarTabBar: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial)
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(KlarColors.isDark ? 0.1 : 0.5),
+                            Color.white.opacity(KlarColors.isDark ? 0.05 : 0.15)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.5
+                )
+        )
         .clipShape(RoundedRectangle(cornerRadius: 24))
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+        .shadow(color: .black.opacity(0.08), radius: 16, y: 6)
         .padding(.horizontal, 24)
         .padding(.bottom, 8)
     }

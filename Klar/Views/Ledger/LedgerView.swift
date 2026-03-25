@@ -424,7 +424,7 @@ struct LedgerView: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(KlarColors.primary)
+            .background(KlarColors.accent)
             .clipShape(Capsule())
 
             Button {
@@ -496,7 +496,7 @@ struct TransactionRow: View {
             if let sparkData = merchantSparkData, sparkData.count >= 3 {
                 SparklineView(
                     data: sparkData,
-                    trendColor: Color(hex: "#C9505B"),
+                    trendColor: KlarColors.negative,
                     height: 20,
                     lineWidth: 1.2,
                     showGradientFill: false,

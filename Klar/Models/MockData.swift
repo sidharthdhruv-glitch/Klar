@@ -5,15 +5,15 @@ import Foundation
 struct DefaultData {
 
     static let categories: [Category] = [
-        Category(name: "Shopping", colorHex: "#A78BFA", sfSymbol: "bag.fill"),
-        Category(name: "Entertainment", colorHex: "#FB923C", sfSymbol: "tv.fill"),
-        Category(name: "Health", colorHex: "#34D399", sfSymbol: "heart.fill"),
-        Category(name: "Finance", colorHex: "#60A5FA", sfSymbol: "banknote.fill"),
-        Category(name: "Transport", colorHex: "#FBBF24", sfSymbol: "car.fill"),
-        Category(name: "Utilities", colorHex: "#F472B6", sfSymbol: "bolt.fill"),
-        Category(name: "Misc", colorHex: "#94A3B8", sfSymbol: "ellipsis.circle.fill"),
-        Category(name: "Food", colorHex: "#F97316", sfSymbol: "fork.knife"),
-        Category(name: "Income", colorHex: "#4ADE80", sfSymbol: "indianrupeesign.circle.fill"),
+        Category(name: "Shopping", colorHex: "#F6B7C4", sfSymbol: "bag.fill"),
+        Category(name: "Entertainment", colorHex: "#A0C4FF", sfSymbol: "tv.fill"),
+        Category(name: "Health", colorHex: "#B7E4C7", sfSymbol: "heart.fill"),
+        Category(name: "Finance", colorHex: "#A0C4FF", sfSymbol: "banknote.fill"),
+        Category(name: "Transport", colorHex: "#CDB4DB", sfSymbol: "car.fill"),
+        Category(name: "Utilities", colorHex: "#B7E4C7", sfSymbol: "bolt.fill"),
+        Category(name: "Misc", colorHex: "#D4C5A9", sfSymbol: "ellipsis.circle.fill"),
+        Category(name: "Food", colorHex: "#FFD6A5", sfSymbol: "fork.knife"),
+        Category(name: "Income", colorHex: "#6FCF97", sfSymbol: "indianrupeesign.circle.fill"),
     ]
 
     static let rules: [Rule] = [

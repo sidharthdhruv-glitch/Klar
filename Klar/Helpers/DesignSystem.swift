@@ -10,16 +10,16 @@ enum KlarTheme: String, CaseIterable {
     var previewGradient: LinearGradient {
         switch self {
         case .cream:
-            return LinearGradient(colors: [Color(hex: "#F5F0E8"), Color(hex: "#E8E0D0")], startPoint: .top, endPoint: .bottom)
+            return LinearGradient(colors: [Color(hex: "#F8F7F4"), Color(hex: "#EFEDE8")], startPoint: .top, endPoint: .bottom)
         case .midnight:
-            return LinearGradient(colors: [Color(hex: "#1A1A18"), Color(hex: "#2A2A26")], startPoint: .top, endPoint: .bottom)
+            return LinearGradient(colors: [Color(hex: "#1A1A1E"), Color(hex: "#2A2A2E")], startPoint: .top, endPoint: .bottom)
         case .system:
-            return LinearGradient(colors: [Color(hex: "#F5F0E8"), Color(hex: "#1A1A18")], startPoint: .leading, endPoint: .trailing)
+            return LinearGradient(colors: [Color(hex: "#F8F7F4"), Color(hex: "#1A1A1E")], startPoint: .leading, endPoint: .trailing)
         }
     }
 }
 
-// MARK: - Colors
+// MARK: - Colors (New Unified Palette)
 enum KlarColors {
     @AppStorage("selectedTheme") private static var selectedTheme: String = "Cream"
 
@@ -30,33 +30,45 @@ enum KlarColors {
         return selectedTheme == "Midnight"
     }
 
-    static var background: Color { isDark ? Color(hex: "#1A1A18") : Color(hex: "#F5F0E8") }
-    static var surface: Color { isDark ? Color(hex: "#2A2A26") : .white }
-    static var surfaceElevated: Color { isDark ? Color(hex: "#3A3A35") : Color(hex: "#EDE8E0") }
-    static var primary: Color { isDark ? Color(hex: "#E8E4DC") : Color(hex: "#1A1A1A") }
-    static var secondary: Color { isDark ? Color(hex: "#8A8A82") : Color(hex: "#7A7A7A") }
-    static let positive = Color(hex: "#4A8C5C")
-    static let negative = Color(hex: "#C0392B")
-    static var tabBarBg: Color { isDark ? Color(hex: "#0A0A08") : Color(hex: "#2A2A2A") }
-    static let tabBarBorder = Color(hex: "#3A3A3A")
-    static var inactive: Color { isDark ? Color(hex: "#5A5A55") : Color(hex: "#AAAAAA") }
-    static var barTrack: Color { isDark ? Color(hex: "#3A3A35") : Color(hex: "#E0DBD3") }
-    static let accent = Color(hex: "#D64B8A")
-    static var dropZone: Color { isDark ? Color(hex: "#3A4A5A") : Color(hex: "#C8D4E8") }
-    static let searchHighlight = Color(hex: "#E8C840")
-    static var dashedBorder: Color { isDark ? Color(hex: "#4A4A42") : Color(hex: "#C0B8A8") }
-    static var border: Color { isDark ? Color(hex: "#3A3A35") : Color(hex: "#D4CFC0") }
-    static var cardBg: Color { isDark ? Color(hex: "#2A2A26") : Color(hex: "#FFFDF8") }
+    // Backgrounds
+    static var background: Color { isDark ? Color(hex: "#1A1A1E") : Color(hex: "#F8F7F4") }
+    static var surface: Color { isDark ? Color(hex: "#2A2A2E") : Color(hex: "#FFFFFF") }
+    static var surfaceElevated: Color { isDark ? Color(hex: "#3A3A3E") : Color(hex: "#F0EDE8") }
+    static var cardBg: Color { isDark ? Color(hex: "#2A2A2E").opacity(0.7) : Color(hex: "#FFFFFF").opacity(0.7) }
 
-    static let shopping = Color(hex: "#E8D44D")
-    static let entertainment = Color(hex: "#E8A060")
-    static let health = Color(hex: "#6BBF8A")
-    static let finance = Color(hex: "#8E9FD0")
-    static let transport = Color(hex: "#5BAFCF")
-    static let utilities = Color(hex: "#D64B8A")
-    static let misc = Color(hex: "#9B8EC2")
-    static let food = Color(hex: "#E07B5A")
-    static let income = Color(hex: "#4A8C5C")
+    // Text
+    static var primary: Color { isDark ? Color(hex: "#F0EDE8") : Color(hex: "#1C1C1E") }
+    static var secondary: Color { isDark ? Color(hex: "#8A8A8E") : Color(hex: "#6B6B6B") }
+    static var inactive: Color { isDark ? Color(hex: "#5A5A5E") : Color(hex: "#ACACAC") }
+
+    // Borders
+    static var border: Color { isDark ? Color(hex: "#3A3A3E") : Color(hex: "#E6E2DB") }
+    static var dashedBorder: Color { isDark ? Color(hex: "#4A4A4E") : Color(hex: "#D6D2CB") }
+    static var barTrack: Color { isDark ? Color(hex: "#3A3A3E") : Color(hex: "#E6E2DB") }
+
+    // Semantic
+    static let positive = Color(hex: "#6FCF97")
+    static let negative = Color(hex: "#EB5757")
+    static let accent = Color(hex: "#FF8A5B")
+
+    // Tab bar
+    static var tabBarBg: Color { isDark ? Color(hex: "#1A1A1E").opacity(0.8) : Color(hex: "#FFFFFF").opacity(0.8) }
+    static var tabBarBorder: Color { isDark ? Color(hex: "#3A3A3E") : Color(hex: "#E6E2DB") }
+
+    // Misc
+    static var dropZone: Color { isDark ? Color(hex: "#3A4A5A") : Color(hex: "#E8E4DB") }
+    static let searchHighlight = Color(hex: "#FF8A5B")
+
+    // Category colors (soft pastel palette)
+    static let shopping = Color(hex: "#F6B7C4")
+    static let entertainment = Color(hex: "#A0C4FF")
+    static let health = Color(hex: "#B7E4C7")
+    static let finance = Color(hex: "#A0C4FF")
+    static let transport = Color(hex: "#CDB4DB")
+    static let utilities = Color(hex: "#B7E4C7")
+    static let misc = Color(hex: "#D4C5A9")
+    static let food = Color(hex: "#FFD6A5")
+    static let income = Color(hex: "#6FCF97")
 
     static func categoryColor(for name: String) -> Color {
         switch name.lowercased() {
@@ -69,7 +81,7 @@ enum KlarColors {
         case "misc": return misc
         case "food": return food
         case "income": return income
-        default: return misc
+        default: return Color(hex: "#D4C5A9")
         }
     }
 
@@ -112,11 +124,11 @@ extension Color {
 // MARK: - Typography
 enum KlarFonts {
     static func display(_ size: CGFloat = 34) -> Font {
-        .system(size: size, weight: .black, design: .rounded)
+        .system(size: size, weight: .bold, design: .rounded)
     }
 
     static func heading(_ size: CGFloat = 22) -> Font {
-        .system(size: size, weight: .bold, design: .rounded)
+        .system(size: size, weight: .semibold, design: .rounded)
     }
 
     static func body(_ size: CGFloat = 15) -> Font {
@@ -124,11 +136,11 @@ enum KlarFonts {
     }
 
     static func label(_ size: CGFloat = 12) -> Font {
-        .system(size: size, weight: .semibold, design: .default)
+        .system(size: size, weight: .medium, design: .default)
     }
 
     static func sectionHeader() -> Font {
-        .system(size: 13, weight: .black, design: .rounded)
+        .system(size: 13, weight: .bold, design: .rounded)
     }
 
     static func serifItalic(_ size: CGFloat = 30) -> Font {
@@ -152,7 +164,7 @@ enum KlarAnimation {
     static let staggerDelay: TimeInterval = 0.08
 }
 
-// MARK: - Card Component
+// MARK: - Glass Card Component (Liquid Glass)
 struct KlarCard<Content: View>: View {
     let content: Content
     var dashedBorder: Bool = false
@@ -165,16 +177,34 @@ struct KlarCard<Content: View>: View {
     var body: some View {
         content
             .padding(16)
-            .background(KlarColors.cardBg)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .background {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.ultraThinMaterial)
+                    .shadow(color: .black.opacity(0.04), radius: 12, y: 4)
+            }
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 16)
                     .stroke(
-                        KlarColors.border,
-                        lineWidth: 1
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(KlarColors.isDark ? 0.1 : 0.6),
+                                Color.white.opacity(KlarColors.isDark ? 0.05 : 0.2)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: dashedBorder ? 0 : 1
                     )
             )
-            .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
+            .overlay(
+                dashedBorder ?
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(
+                        KlarColors.border,
+                        style: StrokeStyle(lineWidth: 1, dash: [6, 4])
+                    ) : nil
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
 
@@ -202,7 +232,7 @@ struct CategoryPill: View {
             .foregroundStyle(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(color.opacity(0.12))
+            .background(color.opacity(0.15))
             .clipShape(Capsule())
     }
 }
@@ -213,7 +243,7 @@ struct StatusBadge: View {
 
     var color: Color {
         switch status {
-        case .parsing: return .orange
+        case .parsing: return KlarColors.accent
         case .success: return KlarColors.positive
         case .needsReview: return KlarColors.negative
         }
@@ -363,13 +393,13 @@ struct LedgerSkeleton: View {
     }
 }
 
-// MARK: - Sliding Picker
+// MARK: - Sliding Picker (Liquid Glass)
 struct SlidingPicker: View {
     @Binding var selection: AccountType
     @Namespace private var pickerAnimation
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             ForEach(AccountType.allCases, id: \.self) { type in
                 Button {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -377,19 +407,21 @@ struct SlidingPicker: View {
                     }
                     HapticManager.light()
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         Image(systemName: type == .savings ? "banknote" : type == .credit ? "creditcard" : "wallet.pass")
-                            .font(.system(size: 12))
+                            .font(.system(size: 11))
                         Text(type.rawValue.uppercased())
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .foregroundColor(selection == type ? .white : KlarColors.secondary)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 10)
                     .padding(.vertical, 10)
                     .background {
                         if selection == type {
                             Capsule()
-                                .fill(KlarColors.primary)
+                                .fill(KlarColors.accent)
                                 .matchedGeometryEffect(id: "pickerPill", in: pickerAnimation)
                         }
                     }
@@ -397,7 +429,11 @@ struct SlidingPicker: View {
             }
         }
         .padding(4)
-        .background(KlarColors.surfaceElevated)
+        .background(.ultraThinMaterial)
         .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(KlarColors.border.opacity(0.5), lineWidth: 0.5)
+        )
     }
 }

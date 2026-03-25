@@ -75,17 +75,17 @@ struct WeeklyRhythmBars: View {
     }
 
     private func barColor(for amount: Double, max: Double) -> Color {
-        guard max > 0 else { return Color(hex: "#E8D9A8") }
+        guard max > 0 else { return KlarColors.border }
         let ratio = amount / max
-        if ratio > 0.8 { return Color(hex: "#C9505B").opacity(0.85) }
-        if ratio > 0.5 { return Color(hex: "#C8A84E") }
-        return Color(hex: "#E8D9A8")
+        if ratio > 0.8 { return KlarColors.negative.opacity(0.85) }
+        if ratio > 0.5 { return KlarColors.accent }
+        return KlarColors.border
     }
 
     private func barLabelColor(for amount: Double, max: Double) -> Color {
         guard max > 0 else { return KlarColors.secondary }
         let ratio = amount / max
-        if ratio > 0.8 { return Color(hex: "#C9505B") }
+        if ratio > 0.8 { return KlarColors.negative }
         return KlarColors.secondary
     }
 }

@@ -320,7 +320,7 @@ struct SettingsView: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(KlarColors.primary)
+                    .background(KlarColors.accent)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
             }
@@ -338,7 +338,7 @@ struct SettingsView: View {
 
                 HStack(spacing: 14) {
                     Circle()
-                        .fill(KlarColors.finance)
+                        .fill(KlarColors.accent)
                         .frame(width: 48, height: 48)
                         .overlay(
                             Text(String(userName.prefix(1)).uppercased())
@@ -489,7 +489,7 @@ struct RuleEngineSheet: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(KlarColors.primary)
+                .background(KlarColors.accent)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .padding(.horizontal, 20)
@@ -584,7 +584,7 @@ struct AddRuleSheet: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(KlarColors.primary)
+                    .background(KlarColors.accent)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .padding(.bottom, 32)
@@ -662,7 +662,7 @@ struct AddCategorySheet: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(KlarColors.primary)
+                    .background(KlarColors.accent)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .padding(.bottom, 32)
