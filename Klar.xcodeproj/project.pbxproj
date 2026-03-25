@@ -45,6 +45,11 @@
 		AA000036 /* WeeklyRhythmBars.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000036; };
 		AA000037 /* BumpChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000037; };
 		AA000038 /* MonthComparisonBars.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000038; };
+		AA000039 /* CSVParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000039; };
+		AA000040 /* DateParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000040; };
+		AA000041 /* ExcelParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000041; };
+		AA000042 /* ImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000042; };
+		AA000043 /* TransactionMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000043; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -86,6 +91,11 @@
 		BB000036 /* WeeklyRhythmBars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyRhythmBars.swift; sourceTree = "<group>"; };
 		BB000037 /* BumpChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BumpChart.swift; sourceTree = "<group>"; };
 		BB000038 /* MonthComparisonBars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonthComparisonBars.swift; sourceTree = "<group>"; };
+		BB000039 /* CSVParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVParser.swift; sourceTree = "<group>"; };
+		BB000040 /* DateParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateParser.swift; sourceTree = "<group>"; };
+		BB000041 /* ExcelParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExcelParser.swift; sourceTree = "<group>"; };
+		BB000042 /* ImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportService.swift; sourceTree = "<group>"; };
+		BB000043 /* TransactionMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionMapper.swift; sourceTree = "<group>"; };
 		CC000001 /* Klar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Klar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -139,6 +149,11 @@
 				BB000024 /* StatementParser.swift */,
 				BB000026 /* HapticManager.swift */,
 				BB000027 /* KlarChartStyle.swift */,
+				BB000039 /* CSVParser.swift */,
+				BB000040 /* DateParser.swift */,
+				BB000041 /* ExcelParser.swift */,
+				BB000042 /* ImportService.swift */,
+				BB000043 /* TransactionMapper.swift */,
 			);
 			path = Helpers;
 			sourceTree = "<group>";
@@ -339,6 +354,11 @@
 				AA000036 /* WeeklyRhythmBars.swift in Sources */,
 				AA000037 /* BumpChart.swift in Sources */,
 				AA000038 /* MonthComparisonBars.swift in Sources */,
+				AA000039 /* CSVParser.swift in Sources */,
+				AA000040 /* DateParser.swift in Sources */,
+				AA000041 /* ExcelParser.swift in Sources */,
+				AA000042 /* ImportService.swift in Sources */,
+				AA000043 /* TransactionMapper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
